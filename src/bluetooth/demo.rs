@@ -584,11 +584,33 @@ impl MessageStore for Mas {
 /// The PBAP server of the demo phone.
 struct PhoneBook;
 
-/// Portrait colors of the demo people who have a photo: background, skin, shirt.
-const PORTRAITS: [(usize, [u8; 3], [u8; 3], [u8; 3]); 3] = [
-    (0, [250, 196, 140], [233, 180, 150], [82, 112, 196]),
-    (1, [168, 214, 200], [214, 160, 120], [196, 72, 98]),
-    (4, [190, 170, 230], [160, 110, 80], [240, 176, 60]),
+/// The portrait of a demo person who has a photo.
+struct Portrait {
+    person: usize,
+    background: [u8; 3],
+    skin: [u8; 3],
+    shirt: [u8; 3],
+}
+
+const PORTRAITS: [Portrait; 3] = [
+    Portrait {
+        person: 0,
+        background: [250, 196, 140],
+        skin: [233, 180, 150],
+        shirt: [82, 112, 196],
+    },
+    Portrait {
+        person: 1,
+        background: [168, 214, 200],
+        skin: [214, 160, 120],
+        shirt: [196, 72, 98],
+    },
+    Portrait {
+        person: 4,
+        background: [190, 170, 230],
+        skin: [160, 110, 80],
+        shirt: [240, 176, 60],
+    },
 ];
 
 /// Draws a simple portrait: a head and shoulders on a plain background.
@@ -646,9 +668,10 @@ impl PhoneBook {
             cards.push_str(&format!(
                 "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:{name}\r\nN:{family};{given};;;\r\nTEL;TYPE=CELL:{number}\r\n"
             ));
-            let portrait_colors = PORTRAITS.iter().find(|(who, ..)| *who == person);
-            if let (true, Some((_, background, skin, shirt))) = (photos, portrait_colors) {
-                cards.push_str(&photo_property(&portrait(*background, *skin, *shirt)));
+            let colors = PORTRAITS.iter().find(|portrait| portrait.person == person);
+            if let (true, Some(colors)) = (photos, colors) {
+                let png = portrait(colors.background, colors.skin, colors.shirt);
+                cards.push_str(&photo_property(&png));
             }
             cards.push_str("END:VCARD\r\n");
         }
