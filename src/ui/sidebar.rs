@@ -53,7 +53,11 @@ impl FerryApp {
                 if conversations.is_empty() {
                     ui.add_space(24.0);
                     ui.vertical_centered(|ui| {
-                        let text = if query.is_empty() { "No Messages" } else { "No Results" };
+                        let text = if query.is_empty() {
+                            "No Messages"
+                        } else {
+                            "No Results"
+                        };
                         ui.label(RichText::new(text).color(palette.secondary));
                     });
                 }
@@ -78,76 +82,110 @@ impl FerryApp {
     fn status(&mut self, ui: &mut Ui, palette: &Palette) {
         let (color, label) = match &self.state {
             State::Disconnected => (palette.secondary, "Not Connected".to_string()),
-            State::Connecting(device) => (palette.warning, format!("Connecting to {}…", device.name)),
-            State::Connected { device, syncing: true, .. } => (palette.online, format!("{} · Updating…", device.name)),
+            State::Connecting(device) => {
+                (palette.warning, format!("Connecting to {}…", device.name))
+            }
+            State::Connected {
+                device,
+                syncing: true,
+                ..
+            } => (palette.online, format!("{} · Updating…", device.name)),
             State::Connected { device, .. } => (palette.online, device.name.clone()),
-            State::Retrying { device, .. } => (palette.failed, format!("{} · Reconnecting…", device.name)),
+            State::Retrying { device, .. } => {
+                (palette.failed, format!("{} · Reconnecting…", device.name))
+            }
         };
 
         let response = ui
             .horizontal(|ui| {
                 let (dot, _) = ui.allocate_exact_size(vec2(8.0, 8.0), Sense::hover());
                 ui.painter().circle_filled(dot.center(), 4.0, color);
-                ui.add(egui::Label::new(RichText::new(label).size(12.5).color(palette.secondary)).truncate())
+                ui.add(
+                    egui::Label::new(RichText::new(label).size(12.5).color(palette.secondary))
+                        .truncate(),
+                )
             })
             .inner;
         if let State::Retrying { error, .. } = &self.state {
             response.clone().on_hover_text(error.clone());
         }
 
-        egui::Popup::menu(&response.interact(Sense::click()))
-            .show(|ui| {
-                ui.set_min_width(200.0);
-                match self.state.clone() {
-                    State::Disconnected => {
-                        if ui.button("Connect…").clicked() {
-                            self.view = View::Empty;
-                            self.session.send(Command::RefreshDevices);
-                        }
-                    }
-                    State::Retrying { .. } => {
-                        if ui.button("Retry Now").clicked() {
-                            self.session.send(Command::Sync);
-                        }
-                        if ui.button("Disconnect").clicked() {
-                            self.session.send(Command::Disconnect);
-                        }
-                    }
-                    State::Connecting(_) => {
-                        if ui.button("Cancel").clicked() {
-                            self.session.send(Command::Disconnect);
-                        }
-                    }
-                    State::Connected { .. } => {
-                        if ui.button("Check for New Messages").clicked() {
-                            self.session.send(Command::Sync);
-                        }
-                        if ui.button("Reload Contacts").clicked() {
-                            self.session.send(Command::ReloadContacts);
-                        }
-                        if ui.button("Disconnect").clicked() {
-                            self.session.send(Command::Disconnect);
-                        }
+        egui::Popup::menu(&response.interact(Sense::click())).show(|ui| {
+            ui.set_min_width(200.0);
+            match self.state.clone() {
+                State::Disconnected => {
+                    if ui.button("Connect…").clicked() {
+                        self.view = View::Empty;
+                        self.session.send(Command::RefreshDevices);
                     }
                 }
-                ui.separator();
-                if ui.button("Switch Phone…").clicked() {
-                    self.view = View::Empty;
-                    self.session.send(Command::Disconnect);
-                    self.session.send(Command::RefreshDevices);
+                State::Retrying { .. } => {
+                    if ui.button("Retry Now").clicked() {
+                        self.session.send(Command::Sync);
+                    }
+                    if ui.button("Disconnect").clicked() {
+                        self.session.send(Command::Disconnect);
+                    }
                 }
-                ui.checkbox(&mut self.settings.notifications, "Show Notifications");
-                if !self.demo {
-                    ui.checkbox(&mut self.settings.auto_connect, "Connect on Startup");
+                State::Connecting(_) => {
+                    if ui.button("Cancel").clicked() {
+                        self.session.send(Command::Disconnect);
+                    }
                 }
-                ui.separator();
-                ui.label(RichText::new(format!("Bluetooth: {}", self.backend)).size(11.5).color(palette.secondary));
+                State::Connected { .. } => {
+                    if ui.button("Check for New Messages").clicked() {
+                        self.session.send(Command::Sync);
+                    }
+                    if ui.button("Reload Contacts").clicked() {
+                        self.session.send(Command::ReloadContacts);
+                    }
+                    if ui.button("Disconnect").clicked() {
+                        self.session.send(Command::Disconnect);
+                    }
+                }
+            }
+            ui.separator();
+            if ui.button("Switch Phone…").clicked() {
+                self.view = View::Empty;
+                self.session.send(Command::Disconnect);
+                self.session.send(Command::RefreshDevices);
+            }
+            ui.checkbox(&mut self.settings.notifications, "Show Notifications");
+            ui.horizontal(|ui| {
+                let before = self.settings.appearance;
+                for (appearance, label) in [
+                    (super::Appearance::System, "System"),
+                    (super::Appearance::Light, "Light"),
+                    (super::Appearance::Dark, "Dark"),
+                ] {
+                    ui.selectable_value(&mut self.settings.appearance, appearance, label);
+                }
+                if self.settings.appearance != before {
+                    ui.ctx().set_theme(self.settings.appearance);
+                }
             });
+            if !self.demo {
+                ui.checkbox(&mut self.settings.auto_connect, "Connect on Startup");
+            }
+            ui.separator();
+            ui.label(
+                RichText::new(format!("Bluetooth: {}", self.backend))
+                    .size(11.5)
+                    .color(palette.secondary),
+            );
+        });
     }
 }
 
 /// Lays out `text` in at most `rows` rows, ending with an ellipsis if it is cut.
-fn truncated(ui: &Ui, text: &str, font: FontId, color: Color32, width: f32, rows: usize) -> std::sync::Arc<egui::Galley> {
+fn truncated(
+    ui: &Ui,
+    text: &str,
+    font: FontId,
+    color: Color32,
+    width: f32,
+    rows: usize,
+) -> std::sync::Arc<egui::Galley> {
     let mut job = LayoutJob::single_section(
         text.to_string(),
         TextFormat {
@@ -165,9 +203,15 @@ fn truncated(ui: &Ui, text: &str, font: FontId, color: Color32, width: f32, rows
     ui.painter().layout_job(job)
 }
 
-fn conversation_row(ui: &mut Ui, conversation: &Conversation, selected: bool, palette: &Palette) -> Response {
+fn conversation_row(
+    ui: &mut Ui,
+    conversation: &Conversation,
+    selected: bool,
+    palette: &Palette,
+) -> Response {
     let height = 66.0;
-    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
+    let (rect, response) =
+        ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
     if !ui.is_rect_visible(rect) {
         return response;
     }
@@ -181,13 +225,20 @@ fn conversation_row(ui: &mut Ui, conversation: &Conversation, selected: bool, pa
     }
 
     let (text, secondary) = if selected {
-        (palette.selection_text, palette.selection_text.gamma_multiply(0.85))
+        (
+            palette.selection_text,
+            palette.selection_text.gamma_multiply(0.85),
+        )
     } else {
         (palette.text, palette.secondary)
     };
 
     if conversation.unread > 0 {
-        let dot = if selected { Color32::WHITE } else { palette.accent };
+        let dot = if selected {
+            Color32::WHITE
+        } else {
+            palette.accent
+        };
         painter.circle_filled(pos2(row.left() + 9.0, row.center().y), 4.5, dot);
     }
 
@@ -196,9 +247,11 @@ fn conversation_row(ui: &mut Ui, conversation: &Conversation, selected: bool, pa
 
     let left = avatar.x + 31.0;
     let right = row.right() - 10.0;
-    let date = ui
-        .painter()
-        .layout_no_wrap(short_date(conversation.time), FontId::proportional(12.0), secondary);
+    let date = ui.painter().layout_no_wrap(
+        short_date(conversation.time),
+        FontId::proportional(12.0),
+        secondary,
+    );
     let date_pos = pos2(right - date.size().x, row.top() + 10.0);
 
     let name = truncated(
@@ -225,7 +278,10 @@ fn conversation_row(ui: &mut Ui, conversation: &Conversation, selected: bool, pa
 
     if !selected {
         painter.line_segment(
-            [pos2(left, rect.bottom() - 0.5), pos2(rect.right() - 8.0, rect.bottom() - 0.5)],
+            [
+                pos2(left, rect.bottom() - 0.5),
+                pos2(rect.right() - 8.0, rect.bottom() - 0.5),
+            ],
             Stroke::new(0.5, palette.separator),
         );
     }

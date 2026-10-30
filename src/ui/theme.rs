@@ -2,7 +2,9 @@
 
 use std::sync::Arc;
 
-use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, TextStyle, Theme, Visuals};
+use egui::{
+    Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, TextStyle, Theme, Visuals,
+};
 
 /// The colors of one appearance.
 #[derive(Debug, Clone, Copy)]
@@ -104,7 +106,10 @@ fn system_fonts() -> (&'static [&'static str], &'static [&'static str]) {
     } else if cfg!(windows) {
         (
             &["C:\\Windows\\Fonts\\segoeui.ttf"],
-            &["C:\\Windows\\Fonts\\seguisb.ttf", "C:\\Windows\\Fonts\\segoeuib.ttf"],
+            &[
+                "C:\\Windows\\Fonts\\seguisb.ttf",
+                "C:\\Windows\\Fonts\\segoeuib.ttf",
+            ],
         )
     } else {
         (
@@ -165,7 +170,9 @@ pub fn install_fonts(ctx: &egui::Context) {
 
     let mut bold_family = Vec::new();
     if let Some(data) = load_first(semibold) {
-        fonts.font_data.insert("system-bold".to_string(), Arc::new(data));
+        fonts
+            .font_data
+            .insert("system-bold".to_string(), Arc::new(data));
         bold_family.push("system-bold".to_string());
     } else if has_regular {
         bold_family.push("system".to_string());

@@ -12,10 +12,14 @@ use std::time::Duration;
 use ferry::bluetooth::{self, demo::DemoPhone, Backend};
 
 fn main() -> anyhow::Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("ferry=info")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("ferry=info"))
+        .init();
 
     let demo = std::env::args().skip(1).any(|arg| arg == "--demo");
-    if std::env::args().skip(1).any(|arg| arg == "--help" || arg == "-h") {
+    if std::env::args()
+        .skip(1)
+        .any(|arg| arg == "--help" || arg == "-h")
+    {
         println!("Usage: ferry [--demo]\n\n  --demo   try Ferry with a simulated iPhone");
         return Ok(());
     }
@@ -37,7 +41,8 @@ fn main() -> anyhow::Result<()> {
         bluetooth::native()?
     };
 
-    ferry::ui::run(backend, runtime.handle().clone(), demo).map_err(|error| anyhow::anyhow!("{}", error))?;
+    ferry::ui::run(backend, runtime.handle().clone(), demo)
+        .map_err(|error| anyhow::anyhow!("{}", error))?;
     runtime.shutdown_timeout(Duration::from_secs(2));
     Ok(())
 }

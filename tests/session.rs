@@ -121,11 +121,11 @@ async fn sends_messages_and_receives_replies() {
     let mut harness = Harness::start();
     harness.connect().await;
 
-    let id = harness
-        .store
-        .lock()
-        .unwrap()
-        .add_outgoing(JANE, "See you there!", chrono::Utc::now().timestamp());
+    let id = harness.store.lock().unwrap().add_outgoing(
+        JANE,
+        "See you there!",
+        chrono::Utc::now().timestamp(),
+    );
     harness.session.send(Command::Send {
         id,
         address: JANE.to_string(),
@@ -133,7 +133,9 @@ async fn sends_messages_and_receives_replies() {
     });
 
     harness
-        .until_store("delivery", |store| store.get(id).unwrap().status == Status::Delivered)
+        .until_store("delivery", |store| {
+            store.get(id).unwrap().status == Status::Delivered
+        })
         .await;
     assert_eq!(
         Some(&"See you there!".to_string()),
@@ -143,7 +145,9 @@ async fn sends_messages_and_receives_replies() {
     let received = harness
         .until("the reply", |event| matches!(event, Event::Received(_)))
         .await;
-    let Event::Received(ids) = received else { unreachable!() };
+    let Event::Received(ids) = received else {
+        unreachable!()
+    };
     let store = harness.store.lock().unwrap();
     let reply = store.get(ids[0]).unwrap();
     assert_eq!("Sounds good!", reply.text);
@@ -168,7 +172,9 @@ async fn notifications_and_read_status() {
 
     harness.phone.receive("+14155550103", "Ship it?");
     let Event::Received(ids) = harness
-        .until("the new message", |event| matches!(event, Event::Received(_)))
+        .until("the new message", |event| {
+            matches!(event, Event::Received(_))
+        })
         .await
     else {
         unreachable!()
@@ -185,7 +191,9 @@ async fn notifications_and_read_status() {
 
     harness.session.send(Command::Disconnect);
     harness
-        .until("disconnection", |event| matches!(event, Event::State(State::Disconnected)))
+        .until("disconnection", |event| {
+            matches!(event, Event::State(State::Disconnected))
+        })
         .await;
     assert!(!harness.phone.notifications_registered());
 }
@@ -193,7 +201,11 @@ async fn notifications_and_read_status() {
 #[tokio::test(flavor = "multi_thread")]
 async fn sending_while_disconnected_fails() {
     let mut harness = Harness::start();
-    let id = harness.store.lock().unwrap().add_outgoing(JANE, "Hello?", 0);
+    let id = harness
+        .store
+        .lock()
+        .unwrap()
+        .add_outgoing(JANE, "Hello?", 0);
     harness.session.send(Command::Send {
         id,
         address: JANE.to_string(),
@@ -215,7 +227,9 @@ async fn reconnecting_does_not_duplicate_messages() {
 
     harness.session.send(Command::Disconnect);
     harness
-        .until("disconnection", |event| matches!(event, Event::State(State::Disconnected)))
+        .until("disconnection", |event| {
+            matches!(event, Event::State(State::Disconnected))
+        })
         .await;
     harness.connect().await;
 

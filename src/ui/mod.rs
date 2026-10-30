@@ -37,6 +37,8 @@ struct Settings {
     auto_connect: bool,
     /// Whether to show desktop notifications for new messages.
     notifications: bool,
+    /// Light, dark, or following the system.
+    appearance: Appearance,
 }
 
 impl Default for Settings {
@@ -45,6 +47,25 @@ impl Default for Settings {
             last_device: None,
             auto_connect: true,
             notifications: true,
+            appearance: Appearance::System,
+        }
+    }
+}
+
+/// The window's appearance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+enum Appearance {
+    System,
+    Light,
+    Dark,
+}
+
+impl From<Appearance> for egui::ThemePreference {
+    fn from(appearance: Appearance) -> egui::ThemePreference {
+        match appearance {
+            Appearance::System => egui::ThemePreference::System,
+            Appearance::Light => egui::ThemePreference::Light,
+            Appearance::Dark => egui::ThemePreference::Dark,
         }
     }
 }
@@ -120,6 +141,7 @@ impl FerryApp {
             .storage
             .and_then(|storage| eframe::get_value(storage, SETTINGS_KEY))
             .unwrap_or_default();
+        cc.egui_ctx.set_theme(settings.appearance);
         let cache_dir = if demo { None } else { cache_dir() };
 
         // Show the last phone's history right away, before it connects.
@@ -134,7 +156,13 @@ impl FerryApp {
         let outbox = Outbox::new(sender, move || ctx.request_repaint());
 
         let _runtime = runtime.enter();
-        let session = Session::start(backend.clone(), store.clone(), cache_dir, Timing::default(), outbox);
+        let session = Session::start(
+            backend.clone(),
+            store.clone(),
+            cache_dir,
+            Timing::default(),
+            outbox,
+        );
         session.send(Command::RefreshDevices);
 
         let mut auto_connect = settings.auto_connect || demo;
@@ -167,7 +195,9 @@ impl FerryApp {
     }
 
     fn store(&self) -> MutexGuard<'_, Store> {
-        self.store.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.store
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn connected(&self) -> bool {
@@ -193,7 +223,9 @@ impl FerryApp {
             match event {
                 Event::Devices(devices) => {
                     if self.demo && self.auto_connect {
-                        if let Some(device) = devices.as_ref().ok().and_then(|devices| devices.first()) {
+                        if let Some(device) =
+                            devices.as_ref().ok().and_then(|devices| devices.first())
+                        {
                             self.auto_connect = false;
                             self.connect(device.clone());
                         }
@@ -222,7 +254,9 @@ impl FerryApp {
 
         for &id in ids {
             let store = self.store();
-            let Some(message) = store.get(id) else { continue };
+            let Some(message) = store.get(id) else {
+                continue;
+            };
             let visible = focused && self.view == View::Conversation(message.conversation());
             if visible {
                 continue;
@@ -235,13 +269,17 @@ impl FerryApp {
         }
 
         if notified && !focused {
-            ctx.send_viewport_cmd(ViewportCommand::RequestUserAttention(UserAttentionType::Informational));
+            ctx.send_viewport_cmd(ViewportCommand::RequestUserAttention(
+                UserAttentionType::Informational,
+            ));
         }
     }
 
     /// Marks the open conversation read while the window is focused.
     fn mark_read(&mut self, ctx: &egui::Context) {
-        let View::Conversation(key) = &self.view else { return };
+        let View::Conversation(key) = &self.view else {
+            return;
+        };
         if !ctx.input(|input| input.viewport().focused.unwrap_or(true)) {
             return;
         }
@@ -269,7 +307,10 @@ impl FerryApp {
 
     /// The conversations, recomputed only when the store changed.
     fn conversations(&mut self) -> Vec<Conversation> {
-        let store = self.store.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let store = self
+            .store
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if self.conversations.0 != store.revision() {
             self.conversations = (store.revision(), store.conversations());
         }
@@ -278,12 +319,18 @@ impl FerryApp {
 
     /// The messages of conversation `key`, recomputed only when the store changed.
     fn thread(&mut self, key: &str) -> Vec<Message> {
-        let store = self.store.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let store = self
+            .store
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let fresh = matches!(&self.thread, Some((revision, cached, _)) if *revision == store.revision() && cached == key);
         if !fresh {
             self.thread = Some((store.revision(), key.to_string(), store.thread(key)));
         }
-        self.thread.as_ref().map(|(_, _, messages)| messages.clone()).unwrap_or_default()
+        self.thread
+            .as_ref()
+            .map(|(_, _, messages)| messages.clone())
+            .unwrap_or_default()
     }
 
     /// Opens a conversation.
@@ -313,7 +360,8 @@ impl FerryApp {
 
     /// Sends a failed message again.
     fn retry(&mut self, message: &Message) {
-        self.store().set_status(message.id, crate::model::Status::Sending);
+        self.store()
+            .set_status(message.id, crate::model::Status::Sending);
         self.session.send(Command::Send {
             id: message.id,
             address: message.address.clone(),
@@ -322,7 +370,8 @@ impl FerryApp {
     }
 
     fn notices(&mut self, ui: &mut Ui, palette: &Palette) {
-        self.notices.retain(|notice| notice.since.elapsed() < Duration::from_secs(20));
+        self.notices
+            .retain(|notice| notice.since.elapsed() < Duration::from_secs(20));
         let mut dismissed = None;
         for (i, notice) in self.notices.iter().enumerate() {
             Frame::new()
@@ -330,7 +379,9 @@ impl FerryApp {
                 .inner_margin(Margin::symmetric(14, 8))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.add(egui::Label::new(egui::RichText::new(&notice.text).size(12.5)).wrap());
+                        ui.add(
+                            egui::Label::new(egui::RichText::new(&notice.text).size(12.5)).wrap(),
+                        );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.small_button("✕").clicked() {
                                 dismissed = Some(i);
@@ -355,7 +406,11 @@ impl FerryApp {
             View::Compose => self.compose_view(ui, palette),
             View::Empty if self.connected() => {
                 ui.centered_and_justified(|ui| {
-                    ui.label(egui::RichText::new("No Conversation Selected").color(palette.secondary).size(16.0));
+                    ui.label(
+                        egui::RichText::new("No Conversation Selected")
+                            .color(palette.secondary)
+                            .size(16.0),
+                    );
                 });
             }
             View::Empty => self.welcome(ui, palette),
@@ -394,7 +449,11 @@ impl eframe::App for FerryApp {
 }
 
 /// Opens the window and runs until it is closed.
-pub fn run(backend: Arc<dyn Backend>, runtime: tokio::runtime::Handle, demo: bool) -> eframe::Result {
+pub fn run(
+    backend: Arc<dyn Backend>,
+    runtime: tokio::runtime::Handle,
+    demo: bool,
+) -> eframe::Result {
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Ferry")
         .with_app_id("ferry")

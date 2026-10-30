@@ -184,7 +184,10 @@ mod tests {
 
     #[test]
     fn sms_text_is_kept() {
-        assert_eq!("Hi there", message_text(&message(MessageType::SmsGsm, "Hi there\r\n")));
+        assert_eq!(
+            "Hi there",
+            message_text(&message(MessageType::SmsGsm, "Hi there\r\n"))
+        );
     }
 
     #[test]
@@ -194,14 +197,20 @@ mod tests {
             --b1\r\nContent-Type: image/jpeg\r\nContent-Transfer-Encoding: base64\r\n\r\n/9j/4AAQ\r\n\
             --b1\r\nContent-Type: text/plain; charset=utf-8\r\n\
             Content-Transfer-Encoding: base64\r\n\r\nTG9vayBhdCB0aGlzIPCfk7c=\r\n--b1--\r\n";
-        assert_eq!("Look at this 📷", message_text(&message(MessageType::Mms, mms)));
+        assert_eq!(
+            "Look at this 📷",
+            message_text(&message(MessageType::Mms, mms))
+        );
     }
 
     #[test]
     fn quoted_printable_and_html_are_decoded() {
         let email = "Content-Type: text/plain; charset=utf-8\r\n\
             Content-Transfer-Encoding: quoted-printable\r\n\r\nCaf=C3=A9 at =\r\n8?";
-        assert_eq!("Café at 8?", message_text(&message(MessageType::Email, email)));
+        assert_eq!(
+            "Café at 8?",
+            message_text(&message(MessageType::Email, email))
+        );
 
         let html = "Content-Type: text/html\r\n\r\n<p>Tom &amp; Jerry</p>";
         assert_eq!("Tom & Jerry", message_text(&message(MessageType::Im, html)));
@@ -209,10 +218,16 @@ mod tests {
 
     #[test]
     fn plain_bodies_of_mime_types_are_kept() {
-        assert_eq!("just text", message_text(&message(MessageType::Mms, "just text")));
+        assert_eq!(
+            "just text",
+            message_text(&message(MessageType::Mms, "just text"))
+        );
         let note = "Note: bring snacks\r\n\r\nand drinks";
         assert_eq!(note, message_text(&message(MessageType::SmsGsm, note)));
         let email = "From: ann@example.com\r\nSubject: Hi\r\n\r\nBody text";
-        assert_eq!("Body text", message_text(&message(MessageType::Email, email)));
+        assert_eq!(
+            "Body text",
+            message_text(&message(MessageType::Email, email))
+        );
     }
 }

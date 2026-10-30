@@ -157,7 +157,10 @@ pub struct Outbox {
 
 impl Outbox {
     /// Creates an outbox calling `wake` after every event.
-    pub fn new(events: mpsc::UnboundedSender<Event>, wake: impl Fn() + Send + Sync + 'static) -> Outbox {
+    pub fn new(
+        events: mpsc::UnboundedSender<Event>,
+        wake: impl Fn() + Send + Sync + 'static,
+    ) -> Outbox {
         Outbox {
             events,
             wake: Arc::new(wake),
@@ -268,7 +271,10 @@ enum Work {
         expect: Option<u64>,
     },
     /// Download a message.
-    Fetch { folder: String, entry: MessageEntry },
+    Fetch {
+        folder: String,
+        entry: Box<MessageEntry>,
+    },
 }
 
 /// Aborts a task when dropped.
@@ -287,6 +293,11 @@ struct Connection {
     /// The message folders to synchronize, as the phone names them.
     folders: Vec<String>,
     work: VecDeque<Work>,
+    /// Whether the phone accepted the notification registration.
+    registered: bool,
+    /// Whether the phone connected to deliver notifications. Some desktops run a
+    /// second notification server (BlueZ's obexd) the phone may pick instead, so
+    /// registering alone does not prove notifications will arrive.
     notifications: bool,
     /// Whether new messages are announced; off during the first synchronization.
     announce: bool,
@@ -346,7 +357,8 @@ impl Worker {
                 continue;
             };
 
-            self.outbox.emit(Event::State(State::Connecting(device.clone())));
+            self.outbox
+                .emit(Event::State(State::Connecting(device.clone())));
             let exit = match self.open(&device).await {
                 Opening::Opened(mas) => {
                     attempt = 0;
@@ -395,7 +407,10 @@ impl Worker {
     }
 
     fn with_store<R>(&self, f: impl FnOnce(&mut Store) -> R) -> R {
-        f(&mut self.store.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+        f(&mut self
+            .store
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner))
     }
 
     async fn save(&self) {
@@ -403,7 +418,10 @@ impl Worker {
     }
 
     /// Runs a MAP operation with a time limit.
-    async fn op<T>(&self, operation: impl std::future::Future<Output = map::Result<T>>) -> Result<T, Failure> {
+    async fn op<T>(
+        &self,
+        operation: impl std::future::Future<Output = map::Result<T>>,
+    ) -> Result<T, Failure> {
         match timeout(self.timing.operation, operation).await {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(error)) => Err(error.into()),
@@ -417,10 +435,12 @@ impl Worker {
         let deadline = delay.map(|delay| Instant::now() + delay);
         loop {
             let command = match deadline {
-                Some(deadline) => match tokio::time::timeout_at(deadline, self.next_command()).await {
-                    Ok(command) => command,
-                    Err(_) => return Wait::Elapsed,
-                },
+                Some(deadline) => {
+                    match tokio::time::timeout_at(deadline, self.next_command()).await {
+                        Ok(command) => command,
+                        Err(_) => return Wait::Elapsed,
+                    }
+                }
                 None => self.next_command().await,
             };
 
@@ -431,7 +451,10 @@ impl Worker {
                 Some(Command::RefreshDevices) => self.list_devices().await,
                 Some(Command::Send { id, .. }) => {
                     self.with_store(|store| {
-                        store.set_status(id, Status::Failed("Not connected to your phone".to_string()))
+                        store.set_status(
+                            id,
+                            Status::Failed("Not connected to your phone".to_string()),
+                        )
                     });
                     self.outbox.emit(Event::Changed);
                     self.save().await;
@@ -524,6 +547,7 @@ impl Worker {
             mas,
             folders: Vec::new(),
             work: VecDeque::new(),
+            registered: false,
             notifications: false,
             announce: false,
             contacts: None,
@@ -531,10 +555,12 @@ impl Worker {
 
         // The phone delivers reports to a server of ours, published before registering.
         let (reports_sender, mut reports) = mpsc::unbounded_channel();
+        let (arrived, mut arrivals) = mpsc::unbounded_channel();
         let _notifications = match self.backend.listen().await {
             Ok(listener) => Some(AbortOnDrop(tokio::spawn(serve_notifications(
                 listener,
                 reports_sender,
+                arrived,
             )))),
             Err(error) => {
                 log::warn!("cannot listen for notifications: {:#}", error);
@@ -543,7 +569,7 @@ impl Worker {
         };
         if _notifications.is_some() {
             match self.op(conn.mas.set_notification_registration(true)).await {
-                Ok(()) => conn.notifications = true,
+                Ok(()) => conn.registered = true,
                 Err(Failure::Refused(error)) => {
                     log::warn!("the phone refused notifications: {}", error);
                 }
@@ -562,11 +588,8 @@ impl Worker {
         let mut syncing = true;
         self.emit_connected(&conn, syncing);
 
-        let period = if conn.notifications {
-            self.timing.poll_with_notifications
-        } else {
-            self.timing.poll
-        };
+        // Poll often until the phone connects to deliver notifications.
+        let period = self.timing.poll;
         let mut poll = tokio::time::interval_at(Instant::now() + period, period);
 
         loop {
@@ -584,6 +607,14 @@ impl Worker {
                     }
                 }
                 Some(report) = reports.recv() => self.report(&mut conn, report),
+                Some(()) = arrivals.recv() => {
+                    if !conn.notifications {
+                        conn.notifications = true;
+                        let period = self.timing.poll_with_notifications;
+                        poll = tokio::time::interval_at(Instant::now() + period, period);
+                        self.emit_connected(&conn, syncing);
+                    }
+                }
                 _ = poll.tick() => conn.list_all(RECENT_LISTING),
                 _ = std::future::ready(()), if !conn.work.is_empty() => {
                     let work = conn.work.pop_front().expect("not empty");
@@ -615,7 +646,7 @@ impl Worker {
     /// Ends the session politely.
     async fn close(&self, conn: &mut Connection) {
         let polite = Duration::from_secs(3);
-        if conn.notifications {
+        if conn.registered {
             let _ = timeout(polite, conn.mas.set_notification_registration(false)).await;
         }
         let _ = timeout(polite, conn.mas.disconnect()).await;
@@ -625,7 +656,10 @@ impl Worker {
     /// The folders of `telecom/msg` to synchronize.
     async fn folders(&self, conn: &mut Connection) -> Result<Vec<String>, String> {
         let defaults = vec!["inbox".to_string(), "sent".to_string()];
-        let listing = match self.op(conn.mas.get_folder_listing(&Default::default())).await {
+        let listing = match self
+            .op(conn.mas.get_folder_listing(&Default::default()))
+            .await
+        {
             Ok(listing) => listing,
             Err(Failure::Refused(_)) => return Ok(defaults),
             Err(Failure::Link(error)) => return Err(error),
@@ -641,11 +675,19 @@ impl Worker {
                     .map(str::to_string)
             })
             .collect();
-        Ok(if folders.is_empty() { defaults } else { folders })
+        Ok(if folders.is_empty() {
+            defaults
+        } else {
+            folders
+        })
     }
 
     /// Handles a command; returns how the connection ends, if it does.
-    async fn command(&mut self, conn: &mut Connection, command: Command) -> Result<Option<Exit>, String> {
+    async fn command(
+        &mut self,
+        conn: &mut Connection,
+        command: Command,
+    ) -> Result<Option<Exit>, String> {
         match command {
             Command::Connect(other) if other == conn.device => {}
             Command::Connect(other) => {
@@ -662,7 +704,10 @@ impl Worker {
             Command::MarkRead(handles) => {
                 for handle in handles {
                     let status = MessageStatus::Read(true);
-                    match self.op(conn.mas.set_message_status(MessageHandle(handle), status)).await {
+                    match self
+                        .op(conn.mas.set_message_status(MessageHandle(handle), status))
+                        .await
+                    {
                         Ok(()) | Err(Failure::Refused(_)) => {}
                         Err(Failure::Link(error)) => return Err(error),
                     }
@@ -674,13 +719,20 @@ impl Worker {
     }
 
     /// Pushes a message to the outbox, which makes the phone send it.
-    async fn send(&self, conn: &mut Connection, id: u64, address: &str, text: &str) -> Result<(), String> {
+    async fn send(
+        &self,
+        conn: &mut Connection,
+        id: u64,
+        address: &str,
+        text: &str,
+    ) -> Result<(), String> {
         let recipient = if address.contains('@') {
             VCard::email(address.trim())
         } else {
             VCard::telephone(address.trim())
         };
-        let message = BMessage::new(MessageType::SmsGsm, BMessageBody::from_text(text)).with_recipient(recipient);
+        let message = BMessage::new(MessageType::SmsGsm, BMessageBody::from_text(text))
+            .with_recipient(recipient);
         let params = PushMessageParams {
             retry: Some(true),
             ..PushMessageParams::default()
@@ -689,7 +741,9 @@ impl Worker {
         self.with_store(|store| store.set_status(id, Status::Sending));
         self.outbox.emit(Event::Changed);
 
-        let result = self.op(conn.mas.push_message("outbox", &message, &params)).await;
+        let result = self
+            .op(conn.mas.push_message("outbox", &message, &params))
+            .await;
         let outcome = match result {
             Ok(handle) => {
                 self.with_store(|store| {
@@ -705,7 +759,10 @@ impl Worker {
             }
             Err(Failure::Link(error)) => {
                 self.with_store(|store| {
-                    store.set_status(id, Status::Failed("The connection to your phone was lost".to_string()))
+                    store.set_status(
+                        id,
+                        Status::Failed("The connection to your phone was lost".to_string()),
+                    )
                 });
                 Err(error)
             }
@@ -718,9 +775,16 @@ impl Worker {
 
     /// Acts on an event report from the phone.
     fn report(&self, conn: &mut Connection, report: EventReport) {
-        log::debug!("event {} {:?} in {:?}", report.event_type, report.handle, report.folder);
+        log::debug!(
+            "event {} {:?} in {:?}",
+            report.event_type,
+            report.handle,
+            report.folder
+        );
         let handle = report.handle.map(|handle| handle.0);
-        let current = handle.and_then(|handle| self.with_store(|store| store.by_handle(handle).map(|m| m.status.clone())));
+        let current = handle.and_then(|handle| {
+            self.with_store(|store| store.by_handle(handle).map(|m| m.status.clone()))
+        });
 
         let status = match (&report.event_type, &current) {
             (EventType::NewMessage, None) => {
@@ -766,13 +830,20 @@ impl Worker {
     /// Performs one unit of synchronization.
     async fn work(&self, conn: &mut Connection, work: Work) -> Result<(), String> {
         match work {
-            Work::List { folder, count, expect } => {
+            Work::List {
+                folder,
+                count,
+                expect,
+            } => {
                 let params = MessagesListingParams {
                     max_list_count: Some(count),
                     subject_length: Some(SUBJECT_LENGTH),
                     ..MessagesListingParams::default()
                 };
-                let entries = match self.op(conn.mas.get_messages_listing(&folder, &params)).await {
+                let entries = match self
+                    .op(conn.mas.get_messages_listing(&folder, &params))
+                    .await
+                {
                     Ok(response) => response.listing.unwrap_or_default().messages,
                     Err(Failure::Refused(error)) => {
                         log::info!("listing {} refused: {}", folder, error);
@@ -803,7 +874,7 @@ impl Worker {
                         if !queued {
                             conn.work.push_back(Work::Fetch {
                                 folder: folder.clone(),
-                                entry,
+                                entry: Box::new(entry),
                             });
                         }
                     }
@@ -813,7 +884,7 @@ impl Worker {
                 if let Some(handle) = expected {
                     conn.work.push_front(Work::Fetch {
                         folder,
-                        entry: MessageEntry::new(MessageHandle(handle)),
+                        entry: Box::new(MessageEntry::new(MessageHandle(handle))),
                     });
                 }
                 self.outbox.emit(Event::Changed);
@@ -822,7 +893,12 @@ impl Worker {
                 if self.with_store(|store| store.by_handle(entry.handle.0).is_some()) {
                     return Ok(());
                 }
-                let message = match self.op(conn.mas.get_message(entry.handle, &GetMessageParams::default())).await {
+                let message = match self
+                    .op(conn
+                        .mas
+                        .get_message(entry.handle, &GetMessageParams::default()))
+                    .await
+                {
                     Ok(message) => Some(message),
                     Err(Failure::Refused(error)) => {
                         log::info!("message {} refused: {}", entry.handle, error);
@@ -835,7 +911,8 @@ impl Worker {
                 }
 
                 let synced = synced(&folder, &entry, message.as_ref());
-                let announce = conn.announce && synced.direction == Direction::Incoming && !synced.read;
+                let announce =
+                    conn.announce && synced.direction == Direction::Incoming && !synced.read;
                 let added = self.with_store(|store| store.merge(synced));
                 self.outbox.emit(Event::Changed);
                 if let (Some(id), true) = (added, announce) {
@@ -869,7 +946,10 @@ impl Worker {
         }
         self.with_store(|store| {
             for id in failed {
-                store.set_status(id, Status::Failed("The connection to your phone was lost".to_string()));
+                store.set_status(
+                    id,
+                    Status::Failed("The connection to your phone was lost".to_string()),
+                );
             }
         });
         self.outbox.emit(Event::Changed);
@@ -886,7 +966,9 @@ impl Worker {
         AbortOnDrop(tokio::spawn(async move {
             let downloading = timeout(Duration::from_secs(180), download_contacts(backend, device));
             let error = match downloading.await {
-                Ok(Ok(contacts)) if contacts.is_empty() => "the phone shared no contacts".to_string(),
+                Ok(Ok(contacts)) if contacts.is_empty() => {
+                    "the phone shared no contacts".to_string()
+                }
                 Ok(Ok(contacts)) => {
                     log::info!("downloaded {} contacts", contacts.len());
                     store
@@ -909,7 +991,10 @@ impl Worker {
     }
 }
 
-async fn download_contacts(backend: Arc<dyn Backend>, device: Device) -> anyhow::Result<Vec<crate::contacts::Contact>> {
+async fn download_contacts(
+    backend: Arc<dyn Backend>,
+    device: Device,
+) -> anyhow::Result<Vec<crate::contacts::Contact>> {
     let link = backend.connect(&device, Service::PhoneBook).await?;
     let mut pbap = PbapClient::new(link.stream, link.packet_mtu);
     pbap.connect().await?;
@@ -919,10 +1004,15 @@ async fn download_contacts(backend: Arc<dyn Backend>, device: Device) -> anyhow:
 }
 
 /// Serves the phone's notification connections, forwarding the reports.
-async fn serve_notifications(mut listener: crate::bluetooth::Listener, reports: mpsc::UnboundedSender<EventReport>) {
+async fn serve_notifications(
+    mut listener: crate::bluetooth::Listener,
+    reports: mpsc::UnboundedSender<EventReport>,
+    arrived: mpsc::UnboundedSender<()>,
+) {
     let mut servers = Vec::new();
     while let Some(link) = listener.accept().await {
         log::info!("the phone connected for notifications");
+        let _ = arrived.send(());
         let reports = reports.clone();
         servers.push(AbortOnDrop(tokio::spawn(async move {
             let handler = move |_instance: u8, report: EventReport| {
@@ -970,13 +1060,16 @@ fn describe(error: &map::Error) -> String {
 /// Explains why the phone refused to send a message.
 fn refusal(error: &map::Error) -> String {
     match error.response_code() {
-        Some(ResponseCode::NotImplemented | ResponseCode::BadRequest | ResponseCode::NotAcceptable) => {
-            "Your phone does not accept messages over Bluetooth".to_string()
-        }
+        Some(
+            ResponseCode::NotImplemented | ResponseCode::BadRequest | ResponseCode::NotAcceptable,
+        ) => "Your phone does not accept messages over Bluetooth".to_string(),
         Some(ResponseCode::Forbidden | ResponseCode::Unauthorized) => {
-            "Your phone did not allow sending. Check Show Notifications in its Bluetooth settings".to_string()
+            "Your phone did not allow sending. Check Show Notifications in its Bluetooth settings"
+                .to_string()
         }
-        Some(ResponseCode::ServiceUnavailable) => "Your phone could not send the message right now".to_string(),
+        Some(ResponseCode::ServiceUnavailable) => {
+            "Your phone could not send the message right now".to_string()
+        }
         _ => "Not Delivered".to_string(),
     }
 }
@@ -993,7 +1086,12 @@ fn synced(folder: &str, entry: &MessageEntry, message: Option<&BMessage>) -> Syn
     let present = |value: &Option<String>| value.clone().filter(|value| !value.trim().is_empty());
     let card_address = |card: &VCard| card.telephones.first().or(card.emails.first()).cloned();
     let card_name = |card: &VCard| {
-        present(&card.formatted_name).or_else(|| card.name.as_deref().map(structured_name).filter(|name| !name.is_empty()))
+        present(&card.formatted_name).or_else(|| {
+            card.name
+                .as_deref()
+                .map(structured_name)
+                .filter(|name| !name.is_empty())
+        })
     };
     let card = match direction {
         Direction::Incoming => message.and_then(|message| message.originator.as_ref()),
@@ -1001,8 +1099,14 @@ fn synced(folder: &str, entry: &MessageEntry, message: Option<&BMessage>) -> Syn
     };
 
     let (address, name) = match direction {
-        Direction::Incoming => (present(&entry.sender_addressing), present(&entry.sender_name)),
-        Direction::Outgoing => (entry.recipients().into_iter().next(), present(&entry.recipient_name)),
+        Direction::Incoming => (
+            present(&entry.sender_addressing),
+            present(&entry.sender_name),
+        ),
+        Direction::Outgoing => (
+            entry.recipients().into_iter().next(),
+            present(&entry.recipient_name),
+        ),
     };
     let address = address.or_else(|| card.and_then(card_address));
     let name = name.or_else(|| card.and_then(card_name));
@@ -1011,7 +1115,10 @@ fn synced(folder: &str, entry: &MessageEntry, message: Option<&BMessage>) -> Syn
         .map(message_text)
         .or_else(|| entry.subject.clone())
         .unwrap_or_default();
-    let read = entry.read.or(message.map(|message| message.read)).unwrap_or(false);
+    let read = entry
+        .read
+        .or(message.map(|message| message.read))
+        .unwrap_or(false);
 
     Synced {
         handle: entry.handle.0,
@@ -1044,10 +1151,17 @@ fn structured_name(name: &str) -> String {
 pub fn unix_time(datetime: &str) -> Option<i64> {
     let time: Timestamp = datetime.parse().ok()?;
     let naive = NaiveDate::from_ymd_opt(time.year.into(), time.month.into(), time.day.into())?
-        .and_hms_opt(time.hour.into(), time.minute.into(), time.second.min(59).into())?;
+        .and_hms_opt(
+            time.hour.into(),
+            time.minute.into(),
+            time.second.min(59).into(),
+        )?;
 
     match time.offset {
-        UtcOffset::Local => Local.from_local_datetime(&naive).earliest().map(|t| t.timestamp()),
+        UtcOffset::Local => Local
+            .from_local_datetime(&naive)
+            .earliest()
+            .map(|t| t.timestamp()),
         UtcOffset::Utc => Some(naive.and_utc().timestamp()),
         UtcOffset::Minutes(minutes) => FixedOffset::east_opt(i32::from(minutes) * 60)?
             .from_local_datetime(&naive)

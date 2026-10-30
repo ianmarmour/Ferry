@@ -4,8 +4,17 @@ version = "0.1.0"
 authors = ["Ian Armour <ianmarmour@gmail.com>"]
 description = "A cross-platform desktop client for texting through your iPhone over Bluetooth MAP"
 edition = "2021"
+rust-version = "1.95"
+readme = "README.md"
 license = "MIT"
 repository = "https://github.com/ianmarmour/Ferry"
+
+[package.metadata.bundle]
+name = "Ferry"
+identifier = "io.github.ianmarmour.ferry"
+category = "public.app-category.social-networking"
+short_description = "Text from your computer through your iPhone"
+osx_info_plist_exts = ["macos/Info.plist"]
 
 [dependencies]
 anyhow = "1"
@@ -37,3 +46,7 @@ dispatch2 = "0.3"
 objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-io-bluetooth = "0.3"
+
+[profile.release]
+lto = "thin"
+strip = true

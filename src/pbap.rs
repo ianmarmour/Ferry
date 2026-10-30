@@ -74,7 +74,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin> PbapClient<T> {
         Ok(())
     }
 
-    async fn pull(&mut self, parameters: ApplicationParameters) -> obex::Result<obex::client::GetResponse> {
+    async fn pull(
+        &mut self,
+        parameters: ApplicationParameters,
+    ) -> obex::Result<obex::client::GetResponse> {
         self.obex
             .get([
                 Header::Name(MAIN_PHONEBOOK.to_string()),

@@ -124,7 +124,10 @@ pub struct Listener {
 impl Listener {
     /// Creates a listener; `registration` is dropped with it, which should unregister
     /// the service.
-    pub fn new(incoming: mpsc::UnboundedReceiver<Link>, registration: impl Send + 'static) -> Listener {
+    pub fn new(
+        incoming: mpsc::UnboundedReceiver<Link>,
+        registration: impl Send + 'static,
+    ) -> Listener {
         Listener {
             incoming,
             _registration: Box::new(registration),
@@ -146,7 +149,11 @@ pub trait Backend: Send + Sync {
     fn devices(&self) -> BoxFuture<'_, anyhow::Result<Vec<Device>>>;
 
     /// Connects to `service` on `device`.
-    fn connect<'a>(&'a self, device: &'a Device, service: Service) -> BoxFuture<'a, anyhow::Result<Link>>;
+    fn connect<'a>(
+        &'a self,
+        device: &'a Device,
+        service: Service,
+    ) -> BoxFuture<'a, anyhow::Result<Link>>;
 
     /// Publishes the Message Notification Server and listens for the phone.
     fn listen(&self) -> BoxFuture<'_, anyhow::Result<Listener>>;
@@ -176,11 +183,6 @@ pub(crate) mod sdp {
         let mut out = vec![0x19];
         out.extend_from_slice(&uuid.to_be_bytes());
         out
-    }
-
-    /// An 8-bit unsigned integer.
-    pub fn uint8(value: u8) -> Vec<u8> {
-        vec![0x08, value]
     }
 
     /// A 16-bit unsigned integer.
@@ -220,7 +222,11 @@ pub(crate) mod sdp {
         }
         let size = 1usize << (descriptor & 0x07);
         let bytes = value.get(..size)?;
-        Some(bytes.iter().fold(0u64, |acc, &byte| acc << 8 | u64::from(byte)))
+        Some(
+            bytes
+                .iter()
+                .fold(0u64, |acc, &byte| acc << 8 | u64::from(byte)),
+        )
     }
 
     #[cfg(test)]
@@ -229,9 +235,12 @@ pub(crate) mod sdp {
 
         #[test]
         fn encodes_and_reads_elements() {
-            assert_eq!(vec![0x35, 0x06, 0x19, 0x11, 0x34, 0x09, 0x01, 0x04], sequence(&[uuid16(0x1134), uint16(0x0104)]));
+            assert_eq!(
+                vec![0x35, 0x06, 0x19, 0x11, 0x34, 0x09, 0x01, 0x04],
+                sequence(&[uuid16(0x1134), uint16(0x0104)])
+            );
             assert_eq!(Some(0x1F), read_uint(&uint32(0x1F)));
-            assert_eq!(Some(3), read_uint(&uint8(3)));
+            assert_eq!(Some(3), read_uint(&[0x08, 3]));
             assert_eq!(None, read_uint(&text("x")));
         }
     }

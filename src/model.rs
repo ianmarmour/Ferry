@@ -234,7 +234,9 @@ impl Store {
             return contact.name.clone();
         }
         match reported.map(str::trim) {
-            Some(name) if !name.is_empty() && conversation_key(name) != conversation_key(address) => {
+            Some(name)
+                if !name.is_empty() && conversation_key(name) != conversation_key(address) =>
+            {
                 name.to_string()
             }
             _ => format_address(address),
@@ -348,7 +350,11 @@ impl Store {
                 && matches!(m.status, Status::Sending | Status::Sent | Status::Failed(_))
                 && same(m, SENT_MATCH_WINDOW)
         });
-        let earlier = local.or_else(|| self.messages.iter().position(|m| same(m, SYNC_MATCH_WINDOW)));
+        let earlier = local.or_else(|| {
+            self.messages
+                .iter()
+                .position(|m| same(m, SYNC_MATCH_WINDOW))
+        });
 
         if let Some(i) = earlier {
             let message = &mut self.messages[i];
@@ -445,7 +451,10 @@ impl Store {
         let mut changed = false;
 
         for message in &mut self.messages {
-            if message.direction == Direction::Incoming && !message.read && message.conversation() == key {
+            if message.direction == Direction::Incoming
+                && !message.read
+                && message.conversation() == key
+            {
                 message.read = true;
                 changed = true;
                 handles.extend(message.handle);
@@ -510,9 +519,14 @@ mod tests {
         store.merge(synced(1, Direction::Incoming, "+15555550001", "Hi", 100));
         store.forget_handles();
 
-        assert_eq!(None, store.merge(synced(7, Direction::Incoming, "5555550001", "Hi", 100)));
+        assert_eq!(
+            None,
+            store.merge(synced(7, Direction::Incoming, "5555550001", "Hi", 100))
+        );
         assert_eq!(Some(7), store.messages[0].handle);
-        assert!(store.merge(synced(8, Direction::Incoming, "5555550001", "Hi", 5000)).is_some());
+        assert!(store
+            .merge(synced(8, Direction::Incoming, "5555550001", "Hi", 5000))
+            .is_some());
     }
 
     #[test]

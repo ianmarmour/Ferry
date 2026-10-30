@@ -94,7 +94,15 @@ struct State {
 }
 
 impl State {
-    fn add(&mut self, folder: &str, person: usize, outgoing: bool, minutes_ago: i64, text: &str, read: bool) -> MessageHandle {
+    fn add(
+        &mut self,
+        folder: &str,
+        person: usize,
+        outgoing: bool,
+        minutes_ago: i64,
+        text: &str,
+        read: bool,
+    ) -> MessageHandle {
         let handle = MessageHandle(self.next_handle);
         self.next_handle += 1;
 
@@ -102,7 +110,11 @@ impl State {
         let datetime = (chrono::Local::now() - chrono::Duration::minutes(minutes_ago))
             .format("%Y%m%dT%H%M%S")
             .to_string();
-        let (sender, recipient) = if outgoing { (OWNER, number) } else { (number, OWNER) };
+        let (sender, recipient) = if outgoing {
+            (OWNER, number)
+        } else {
+            (number, OWNER)
+        };
 
         let entry = MessageEntry {
             subject: Some(text.chars().take(40).collect()),
@@ -173,8 +185,19 @@ impl DemoPhone {
             replies: 0,
         };
         for (person, minutes_ago, outgoing, text) in HISTORY {
-            let folder = if outgoing { "telecom/msg/sent" } else { "telecom/msg/inbox" };
-            state.add(folder, person, outgoing, minutes_ago, text, outgoing || minutes_ago > 30);
+            let folder = if outgoing {
+                "telecom/msg/sent"
+            } else {
+                "telecom/msg/inbox"
+            };
+            state.add(
+                folder,
+                person,
+                outgoing,
+                minutes_ago,
+                text,
+                outgoing || minutes_ago > 30,
+            );
         }
 
         DemoPhone {
@@ -224,7 +247,11 @@ impl DemoPhone {
             loop {
                 tokio::time::sleep(period).await;
                 let Some(state) = state.upgrade() else { break };
-                let text = ["Hey! Got a minute?", "Look outside, the sunset is amazing 🌅", "Lunch tomorrow?"][turn % 3];
+                let text = [
+                    "Hey! Got a minute?",
+                    "Look outside, the sunset is amazing 🌅",
+                    "Lunch tomorrow?",
+                ][turn % 3];
                 state.lock().unwrap().receive([0, 2, 4][turn % 3], text);
                 turn += 1;
             }
@@ -344,9 +371,10 @@ impl MessageStore for Mas {
             .and_then(|card| card.telephones.first().or(card.emails.first()))
             .cloned()
             .ok_or(ResponseCode::BadRequest)?;
-        let person = PEOPLE
-            .iter()
-            .position(|(_, number)| crate::contacts::conversation_key(number) == crate::contacts::conversation_key(&recipient));
+        let person = PEOPLE.iter().position(|(_, number)| {
+            crate::contacts::conversation_key(number)
+                == crate::contacts::conversation_key(&recipient)
+        });
 
         let mut state = self.state.lock().unwrap();
         let handle = match person {
@@ -388,7 +416,10 @@ impl MessageStore for Mas {
             state.reports = None;
             return Ok(());
         }
-        let listener = state.listener.clone().ok_or(ResponseCode::ServiceUnavailable)?;
+        let listener = state
+            .listener
+            .clone()
+            .ok_or(ResponseCode::ServiceUnavailable)?;
 
         let (client, server) = tokio::io::duplex(64 * 1024);
         listener
@@ -447,7 +478,8 @@ impl Handler for PhoneBook {
         let offset = get(pbap::tag::LIST_START_OFFSET).unwrap_or(0) as usize;
 
         if count == 0 {
-            let size = ApplicationParameters::new().with_u16(pbap::tag::PHONEBOOK_SIZE, PEOPLE.len() as u16 + 1);
+            let size = ApplicationParameters::new()
+                .with_u16(pbap::tag::PHONEBOOK_SIZE, PEOPLE.len() as u16 + 1);
             return Ok(Object::headers_only([Header::ApplicationParameters(size)]));
         }
         Ok(Object::new([], PhoneBook::vcards(offset, count)))
@@ -470,7 +502,11 @@ impl Backend for DemoPhone {
         })
     }
 
-    fn connect<'a>(&'a self, _device: &'a Device, service: Service) -> BoxFuture<'a, anyhow::Result<Link>> {
+    fn connect<'a>(
+        &'a self,
+        _device: &'a Device,
+        service: Service,
+    ) -> BoxFuture<'a, anyhow::Result<Link>> {
         Box::pin(async move {
             let (client, server) = tokio::io::duplex(64 * 1024);
             match service {

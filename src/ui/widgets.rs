@@ -10,14 +10,24 @@ use crate::contacts::initials;
 /// Interpolates between two colors.
 fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
     let channel = |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * t).round() as u8;
-    Color32::from_rgb(channel(a.r(), b.r()), channel(a.g(), b.g()), channel(a.b(), b.b()))
+    Color32::from_rgb(
+        channel(a.r(), b.r()),
+        channel(a.g(), b.g()),
+        channel(a.b(), b.b()),
+    )
 }
 
 /// A circle filled with a vertical gradient.
 fn gradient_circle(center: Pos2, radius: f32, top: Color32, bottom: Color32) -> Shape {
     let mut mesh = Mesh::default();
     let segments = 48;
-    let color_at = |y: f32| mix(top, bottom, ((y - (center.y - radius)) / (2.0 * radius)).clamp(0.0, 1.0));
+    let color_at = |y: f32| {
+        mix(
+            top,
+            bottom,
+            ((y - (center.y - radius)) / (2.0 * radius)).clamp(0.0, 1.0),
+        )
+    };
 
     mesh.vertices.push(Vertex {
         pos: center,
@@ -42,7 +52,12 @@ fn gradient_circle(center: Pos2, radius: f32, top: Color32, bottom: Color32) -> 
 /// Paints a contact avatar: initials, or a silhouette for unknown numbers.
 pub fn paint_avatar(ui: &Ui, center: Pos2, radius: f32, name: &str, palette: &Palette) {
     let painter = ui.painter();
-    painter.add(gradient_circle(center, radius, palette.avatar_top, palette.avatar_bottom));
+    painter.add(gradient_circle(
+        center,
+        radius,
+        palette.avatar_top,
+        palette.avatar_bottom,
+    ));
 
     match initials(name) {
         Some(initials) => {
@@ -70,13 +85,22 @@ pub fn paint_avatar(ui: &Ui, center: Pos2, radius: f32, name: &str, palette: &Pa
 }
 
 /// A borderless icon button; `paint` draws the icon in the given rect and color.
-pub fn icon_button(ui: &mut Ui, size: f32, tooltip: &str, paint: impl FnOnce(&Ui, Rect, Color32)) -> Response {
+pub fn icon_button(
+    ui: &mut Ui,
+    size: f32,
+    tooltip: &str,
+    paint: impl FnOnce(&Ui, Rect, Color32),
+) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::click());
     let palette = Palette::of(ui.ctx());
     if response.hovered() {
         ui.painter().rect_filled(rect, 6.0, palette.field);
     }
-    let color = if ui.is_enabled() { palette.secondary } else { palette.separator };
+    let color = if ui.is_enabled() {
+        palette.secondary
+    } else {
+        palette.separator
+    };
     paint(ui, rect.shrink(size * 0.22), color);
     response.on_hover_text(tooltip)
 }
@@ -85,21 +109,41 @@ pub fn icon_button(ui: &mut Ui, size: f32, tooltip: &str, paint: impl FnOnce(&Ui
 pub fn paint_compose(ui: &Ui, rect: Rect, color: Color32) {
     let stroke = Stroke::new(1.5, color);
     let painter = ui.painter();
-    let square = Rect::from_min_max(rect.min + vec2(0.0, rect.height() * 0.15), rect.max - vec2(rect.width() * 0.15, 0.0));
-    painter.line_segment([square.left_top(), pos2(square.center().x, square.top())], stroke);
+    let square = Rect::from_min_max(
+        rect.min + vec2(0.0, rect.height() * 0.15),
+        rect.max - vec2(rect.width() * 0.15, 0.0),
+    );
+    painter.line_segment(
+        [square.left_top(), pos2(square.center().x, square.top())],
+        stroke,
+    );
     painter.line_segment([square.left_top(), square.left_bottom()], stroke);
     painter.line_segment([square.left_bottom(), square.right_bottom()], stroke);
-    painter.line_segment([square.right_bottom(), pos2(square.right(), square.center().y)], stroke);
-    painter.line_segment([pos2(rect.center().x - 1.0, rect.center().y + 2.0), rect.right_top()], Stroke::new(2.0, color));
+    painter.line_segment(
+        [
+            square.right_bottom(),
+            pos2(square.right(), square.center().y),
+        ],
+        stroke,
+    );
+    painter.line_segment(
+        [
+            pos2(rect.center().x - 1.0, rect.center().y + 2.0),
+            rect.right_top(),
+        ],
+        Stroke::new(2.0, color),
+    );
 }
 
 /// A magnifying glass.
 pub fn paint_search(ui: &Ui, rect: Rect, color: Color32) {
     let radius = rect.width() * 0.32;
     let center = rect.left_top() + vec2(radius + 1.0, radius + 1.0);
-    ui.painter().circle_stroke(center, radius, Stroke::new(1.4, color));
+    ui.painter()
+        .circle_stroke(center, radius, Stroke::new(1.4, color));
     let handle = center + vec2(radius, radius) * std::f32::consts::FRAC_1_SQRT_2;
-    ui.painter().line_segment([handle, rect.right_bottom()], Stroke::new(1.6, color));
+    ui.painter()
+        .line_segment([handle, rect.right_bottom()], Stroke::new(1.6, color));
 }
 
 /// Circular arrows, for refreshing.
@@ -113,17 +157,28 @@ pub fn paint_refresh(ui: &Ui, rect: Rect, color: Color32) {
         })
         .collect();
     let tip = *points.last().expect("not empty");
-    ui.painter().add(Shape::line(points, Stroke::new(1.5, color)));
-    ui.painter().line_segment([tip, tip + vec2(radius * 0.55, -radius * 0.1)], Stroke::new(1.5, color));
-    ui.painter().line_segment([tip, tip + vec2(0.1 * radius, -radius * 0.55)], Stroke::new(1.5, color));
+    ui.painter()
+        .add(Shape::line(points, Stroke::new(1.5, color)));
+    ui.painter().line_segment(
+        [tip, tip + vec2(radius * 0.55, -radius * 0.1)],
+        Stroke::new(1.5, color),
+    );
+    ui.painter().line_segment(
+        [tip, tip + vec2(0.1 * radius, -radius * 0.55)],
+        Stroke::new(1.5, color),
+    );
 }
 
 /// An iPhone outline.
 pub fn paint_phone(ui: &Ui, rect: Rect, color: Color32) {
     let body = Rect::from_center_size(rect.center(), vec2(rect.height() * 0.55, rect.height()));
-    ui.painter().rect_stroke(body, 3.0, Stroke::new(1.5, color), egui::StrokeKind::Inside);
+    ui.painter()
+        .rect_stroke(body, 3.0, Stroke::new(1.5, color), egui::StrokeKind::Inside);
     ui.painter().line_segment(
-        [pos2(body.center().x - 2.0, body.top() + 3.0), pos2(body.center().x + 2.0, body.top() + 3.0)],
+        [
+            pos2(body.center().x - 2.0, body.top() + 3.0),
+            pos2(body.center().x + 2.0, body.top() + 3.0),
+        ],
         Stroke::new(1.5, color),
     );
 }
@@ -131,9 +186,17 @@ pub fn paint_phone(ui: &Ui, rect: Rect, color: Color32) {
 /// The send button: a filled circle with an up arrow.
 pub fn send_button(ui: &mut Ui, enabled: bool, palette: &Palette) -> Response {
     let size = 26.0;
-    let sense = if enabled { Sense::click() } else { Sense::hover() };
+    let sense = if enabled {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
     let (rect, response) = ui.allocate_exact_size(vec2(size, size), sense);
-    let fill = if enabled { palette.accent } else { palette.separator };
+    let fill = if enabled {
+        palette.accent
+    } else {
+        palette.separator
+    };
     let painter = ui.painter();
     painter.circle_filled(rect.center(), size / 2.0, fill);
 

@@ -27,7 +27,10 @@ use tokio::sync::{mpsc, oneshot, OnceCell};
 use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value};
 use zbus::Connection;
 
-use super::{uuid128, Backend, BoxFuture, Device, Link, Listener, Service, MNS_SERVICE_NAME, PHONE_BOOK_CLIENT_UUID16};
+use super::{
+    uuid128, Backend, BoxFuture, Device, Link, Listener, Service, MNS_SERVICE_NAME,
+    PHONE_BOOK_CLIENT_UUID16,
+};
 
 const BLUEZ: &str = "org.bluez";
 const DEVICE: &str = "org.bluez.Device1";
@@ -82,7 +85,9 @@ impl Profile {
                         let _ = sender.send(fd);
                         Ok(())
                     }
-                    None => Err(zbus::fdo::Error::Failed("no connection was requested".to_string())),
+                    None => Err(zbus::fdo::Error::Failed(
+                        "no connection was requested".to_string(),
+                    )),
                 }
             }
             None => {
@@ -130,7 +135,11 @@ impl BlueZ {
         self.inner
             .get_or_try_init(|| async {
                 let connection = match &self.address {
-                    Some(address) => zbus::connection::Builder::address(address.as_str())?.build().await?,
+                    Some(address) => {
+                        zbus::connection::Builder::address(address.as_str())?
+                            .build()
+                            .await?
+                    }
                     None => Connection::system()
                         .await
                         .context("cannot reach the system D-Bus; is BlueZ installed?")?,
@@ -204,7 +213,9 @@ async fn register(
 }
 
 async fn unregister(connection: &Connection, path: &str) {
-    let Ok(path) = ObjectPath::try_from(path) else { return };
+    let Ok(path) = ObjectPath::try_from(path) else {
+        return;
+    };
     let result = connection
         .call_method(
             Some(BLUEZ),
@@ -224,7 +235,10 @@ fn explain(error: &zbus::Error) -> anyhow::Error {
     let text = error.to_string();
     let hint = if text.contains("profile-unavailable") || text.contains("NotAvailable") {
         "the phone doesn't offer this service; check that Show Notifications is on for this computer in the iPhone's Bluetooth settings"
-    } else if text.contains("page-timeout") || text.contains("Host is down") || text.contains("No route") {
+    } else if text.contains("page-timeout")
+        || text.contains("Host is down")
+        || text.contains("No route")
+    {
         "the phone is out of range, asleep with Bluetooth off, or not paired"
     } else if text.contains("NotReady") {
         "Bluetooth is turned off"
@@ -245,7 +259,9 @@ where
     T: TryFrom<&'a Value<'a>>,
     zbus::zvariant::Error: From<T::Error>,
 {
-    properties.get(name).and_then(|value| value.downcast_ref::<T>().ok())
+    properties
+        .get(name)
+        .and_then(|value| value.downcast_ref::<T>().ok())
 }
 
 impl Backend for BlueZ {
@@ -261,7 +277,10 @@ impl Backend for BlueZ {
                 .path("/")?
                 .build()
                 .await?;
-            let objects = manager.get_managed_objects().await.map_err(|error| explain(&error.into()))?;
+            let objects = manager
+                .get_managed_objects()
+                .await
+                .map_err(|error| explain(&error.into()))?;
 
             let adapters: Vec<bool> = objects
                 .values()
@@ -293,9 +312,10 @@ impl Backend for BlueZ {
                         .get("UUIDs")
                         .and_then(|uuids| uuids.downcast_ref::<zbus::zvariant::Array>().ok())
                         .is_some_and(|uuids| {
-                            uuids
-                                .iter()
-                                .any(|uuid| uuid.downcast_ref::<&str>().is_ok_and(|uuid| uuid.eq_ignore_ascii_case(&mas)))
+                            uuids.iter().any(|uuid| {
+                                uuid.downcast_ref::<&str>()
+                                    .is_ok_and(|uuid| uuid.eq_ignore_ascii_case(&mas))
+                            })
                         });
 
                     Some(Device {
@@ -311,7 +331,11 @@ impl Backend for BlueZ {
         })
     }
 
-    fn connect<'a>(&'a self, device: &'a Device, service: Service) -> BoxFuture<'a, anyhow::Result<Link>> {
+    fn connect<'a>(
+        &'a self,
+        device: &'a Device,
+        service: Service,
+    ) -> BoxFuture<'a, anyhow::Result<Link>> {
         Box::pin(async move {
             let inner = self.inner().await?;
             let key = (service.uuid(), device.id.clone());
@@ -365,11 +389,17 @@ async fn connect_profile(connection: &Connection, device: &str, uuid: &str) -> a
 
     match call("ConnectProfile").await {
         Ok(_) => Ok(()),
-        Err(error) if error.to_string().contains("AlreadyConnected") || error.to_string().contains("InProgress") => {
+        Err(error)
+            if error.to_string().contains("AlreadyConnected")
+                || error.to_string().contains("InProgress") =>
+        {
             log::info!("dropping a stale {} connection", uuid);
             let _ = call("DisconnectProfile").await;
             tokio::time::sleep(Duration::from_millis(500)).await;
-            call("ConnectProfile").await.map(drop).map_err(|error| explain(&error))
+            call("ConnectProfile")
+                .await
+                .map(drop)
+                .map_err(|error| explain(&error))
         }
         Err(error) => Err(explain(&error)),
     }
@@ -414,7 +444,13 @@ fn socket_type(fd: i32) -> Option<i32> {
     let mut length = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
     // SAFETY: `value` and `length` are valid for writes of the sizes given.
     let result = unsafe {
-        libc::getsockopt(fd, libc::SOL_SOCKET, libc::SO_TYPE, (&mut value as *mut libc::c_int).cast(), &mut length)
+        libc::getsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_TYPE,
+            (&mut value as *mut libc::c_int).cast(),
+            &mut length,
+        )
     };
     (result == 0).then_some(value)
 }
@@ -429,8 +465,15 @@ fn l2cap_mtu(fd: i32) -> u16 {
         let mut value: u16 = 0;
         let mut length = std::mem::size_of::<u16>() as libc::socklen_t;
         // SAFETY: `value` and `length` are valid for writes of the sizes given.
-        let result =
-            unsafe { libc::getsockopt(fd, SOL_BLUETOOTH, name, (&mut value as *mut u16).cast(), &mut length) };
+        let result = unsafe {
+            libc::getsockopt(
+                fd,
+                SOL_BLUETOOTH,
+                name,
+                (&mut value as *mut u16).cast(),
+                &mut length,
+            )
+        };
         (result == 0 && value > 0).then_some(value)
     };
     match (option(BT_SNDMTU), option(BT_RCVMTU)) {
@@ -444,13 +487,19 @@ fn l2cap_mtu(fd: i32) -> u16 {
 struct FdStream(AsyncFd<OwnedFd>);
 
 impl AsyncRead for FdStream {
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
         loop {
             let mut guard = ready!(self.0.poll_read_ready(cx))?;
             let unfilled = buf.initialize_unfilled();
             let result = guard.try_io(|fd| {
                 // SAFETY: `unfilled` is valid for writes of its length.
-                let read = unsafe { libc::read(fd.as_raw_fd(), unfilled.as_mut_ptr().cast(), unfilled.len()) };
+                let read = unsafe {
+                    libc::read(fd.as_raw_fd(), unfilled.as_mut_ptr().cast(), unfilled.len())
+                };
                 if read < 0 {
                     Err(io::Error::last_os_error())
                 } else {
@@ -470,12 +519,17 @@ impl AsyncRead for FdStream {
 }
 
 impl AsyncWrite for FdStream {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, data: &[u8]) -> Poll<io::Result<usize>> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        data: &[u8],
+    ) -> Poll<io::Result<usize>> {
         loop {
             let mut guard = ready!(self.0.poll_write_ready(cx))?;
             let result = guard.try_io(|fd| {
                 // SAFETY: `data` is valid for reads of its length.
-                let written = unsafe { libc::write(fd.as_raw_fd(), data.as_ptr().cast(), data.len()) };
+                let written =
+                    unsafe { libc::write(fd.as_raw_fd(), data.as_ptr().cast(), data.len()) };
                 if written < 0 {
                     Err(io::Error::last_os_error())
                 } else {

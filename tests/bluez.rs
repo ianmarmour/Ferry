@@ -81,7 +81,11 @@ fn socket_for(mut link: Link) -> std::os::fd::OwnedFd {
     ours.into()
 }
 
-async fn new_connection(connection: &Connection, profile: &Registered, fd: std::os::fd::OwnedFd) -> zbus::fdo::Result<()> {
+async fn new_connection(
+    connection: &Connection,
+    profile: &Registered,
+    fd: std::os::fd::OwnedFd,
+) -> zbus::fdo::Result<()> {
     connection
         .call_method(
             Some(profile.owner.as_str()),
@@ -130,7 +134,9 @@ impl ProfileManager {
             let connection = connection.clone();
             tokio::spawn(async move {
                 while let Some(link) = listener.accept().await {
-                    new_connection(&connection, &profile, socket_for(link)).await.unwrap();
+                    new_connection(&connection, &profile, socket_for(link))
+                        .await
+                        .unwrap();
                 }
             });
         }
@@ -138,7 +144,11 @@ impl ProfileManager {
     }
 
     async fn unregister_profile(&self, path: OwnedObjectPath) {
-        self.0.profiles.lock().unwrap().retain(|profile| profile.path != path);
+        self.0
+            .profiles
+            .lock()
+            .unwrap()
+            .retain(|profile| profile.path != path);
     }
 }
 
@@ -156,12 +166,20 @@ struct Device(Fake);
 
 #[interface(name = "org.bluez.Device1")]
 impl Device {
-    async fn connect_profile(&self, #[zbus(connection)] connection: &Connection, uuid: String) -> zbus::fdo::Result<()> {
+    async fn connect_profile(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        uuid: String,
+    ) -> zbus::fdo::Result<()> {
         // BlueZ connects the client profile whose remote service is `uuid`.
         let (service, registered_uuid) = match uuid.as_str() {
             u if u == Service::MessageAccess.uuid() => (Service::MessageAccess, uuid.clone()),
             u if u == Service::PhoneBook.uuid() => (Service::PhoneBook, uuid128(0x112E)),
-            _ => return Err(zbus::fdo::Error::Failed("br-connection-profile-unavailable".to_string())),
+            _ => {
+                return Err(zbus::fdo::Error::Failed(
+                    "br-connection-profile-unavailable".to_string(),
+                ))
+            }
         };
         let profile = self
             .0
@@ -225,7 +243,11 @@ async fn fake_bluez(address: &str, fake: Fake) -> Connection {
     connection
 }
 
-async fn until(events: &mut mpsc::UnboundedReceiver<Event>, what: &str, mut predicate: impl FnMut(&Event) -> bool) -> Event {
+async fn until(
+    events: &mut mpsc::UnboundedReceiver<Event>,
+    what: &str,
+    mut predicate: impl FnMut(&Event) -> bool,
+) -> Event {
     let waiting = async {
         loop {
             let event = events.recv().await.expect("session running");
@@ -260,11 +282,24 @@ async fn messages_contacts_and_notifications_through_bluez() {
 
     let store = Arc::new(Mutex::new(Store::in_memory()));
     let (sender, mut events) = mpsc::unbounded_channel();
-    let session = Session::start(backend, store.clone(), None, Timing::default(), Outbox::new(sender, || {}));
+    let session = Session::start(
+        backend,
+        store.clone(),
+        None,
+        Timing::default(),
+        Outbox::new(sender, || {}),
+    );
 
     session.send(Command::Connect(devices[0].clone()));
     until(&mut events, "the first sync", |event| {
-        matches!(event, Event::State(State::Connected { syncing: false, notifications: true, .. }))
+        matches!(
+            event,
+            Event::State(State::Connected {
+                syncing: false,
+                notifications: true,
+                ..
+            })
+        )
     })
     .await;
     assert_eq!(14, store.lock().unwrap().messages.len());
@@ -272,28 +307,48 @@ async fn messages_contacts_and_notifications_through_bluez() {
     // Contacts arrive over a second channel.
     let contacts = store.clone();
     if contacts.lock().unwrap().contacts.is_empty() {
-        until(&mut events, "contacts", |_| !contacts.lock().unwrap().contacts.is_empty()).await;
+        until(&mut events, "contacts", |_| {
+            !contacts.lock().unwrap().contacts.is_empty()
+        })
+        .await;
     }
 
     // Sending, then the reply through the notification server.
-    let id = store.lock().unwrap().add_outgoing("+14155550104", "Over BlueZ", 0);
+    let id = store
+        .lock()
+        .unwrap()
+        .add_outgoing("+14155550104", "Over BlueZ", 0);
     session.send(Command::Send {
         id,
         address: "+14155550104".to_string(),
         text: "Over BlueZ".to_string(),
     });
-    let Event::Received(ids) = until(&mut events, "the reply", |event| matches!(event, Event::Received(_))).await else {
+    let Event::Received(ids) = until(&mut events, "the reply", |event| {
+        matches!(event, Event::Received(_))
+    })
+    .await
+    else {
         unreachable!()
     };
-    let store = store.lock().unwrap();
-    assert_eq!("Sounds good!", store.get(ids[0]).unwrap().text);
-    assert_eq!(Status::Delivered, store.get(id).unwrap().status);
-    drop(store);
+    {
+        let store = store.lock().unwrap();
+        assert_eq!("Sounds good!", store.get(ids[0]).unwrap().text);
+        assert_eq!(Status::Delivered, store.get(id).unwrap().status);
+    }
 
     // Disconnecting unregisters the notification server.
     session.send(Command::Disconnect);
-    until(&mut events, "disconnection", |event| matches!(event, Event::State(State::Disconnected))).await;
+    until(&mut events, "disconnection", |event| {
+        matches!(event, Event::State(State::Disconnected))
+    })
+    .await;
     tokio::time::sleep(Duration::from_millis(200)).await;
-    let roles: Vec<String> = fake.profiles.lock().unwrap().iter().map(|p| p.role.clone()).collect();
+    let roles: Vec<String> = fake
+        .profiles
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|p| p.role.clone())
+        .collect();
     assert_eq!(vec!["client", "client"], roles);
 }

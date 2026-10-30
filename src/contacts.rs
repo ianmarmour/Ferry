@@ -43,7 +43,10 @@ impl Contact {
                     .filter(char::is_ascii_digit)
                     .collect::<String>()
                     .contains(&digits)
-        }) || self.emails.iter().any(|email| email.to_lowercase().contains(&query))
+        }) || self
+            .emails
+            .iter()
+            .any(|email| email.to_lowercase().contains(&query))
     }
 }
 
@@ -97,12 +100,9 @@ pub fn format_address(address: &str) -> String {
     let international = trimmed.starts_with('+');
     match (digits.len(), international) {
         (10, false) => format!("({}) {}-{}", &digits[..3], &digits[3..6], &digits[6..]),
-        (11, _) if digits.starts_with('1') => format!(
-            "+1 ({}) {}-{}",
-            &digits[1..4],
-            &digits[4..7],
-            &digits[7..]
-        ),
+        (11, _) if digits.starts_with('1') => {
+            format!("+1 ({}) {}-{}", &digits[1..4], &digits[4..7], &digits[7..])
+        }
         _ => trimmed.to_string(),
     }
 }
@@ -137,7 +137,12 @@ impl Property {
         let mut parts = head.split(';');
 
         let name = parts.next()?;
-        let name = name.rsplit('.').next().unwrap_or(name).trim().to_uppercase();
+        let name = name
+            .rsplit('.')
+            .next()
+            .unwrap_or(name)
+            .trim()
+            .to_uppercase();
         let params = parts
             .map(|param| match param.split_once('=') {
                 Some((key, value)) => (key.trim().to_uppercase(), value.trim().to_string()),
@@ -453,7 +458,9 @@ mod tests {
 
     #[test]
     fn contacts_without_a_name_use_their_number() {
-        let contacts = parse_vcards(b"BEGIN:VCARD\r\nVERSION:3.0\r\nN:;;;;\r\nFN:\r\nTEL:5551234567\r\nEND:VCARD\r\n");
+        let contacts = parse_vcards(
+            b"BEGIN:VCARD\r\nVERSION:3.0\r\nN:;;;;\r\nFN:\r\nTEL:5551234567\r\nEND:VCARD\r\n",
+        );
         assert_eq!("(555) 123-4567", contacts[0].name);
     }
 
