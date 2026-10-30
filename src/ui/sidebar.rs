@@ -5,14 +5,14 @@ use egui::{pos2, vec2, Align, Color32, FontId, Layout, Response, RichText, Sense
 
 use super::theme::{bold_font, Palette};
 use super::widgets::{icon_button, paint_avatar, paint_compose, search_field, short_date};
-use super::{FerryApp, View};
+use super::{TidingsApp, View};
 use crate::model::Conversation;
 use crate::session::{Command, State};
 
 /// Room for the window buttons drawn over the content on macOS.
 const TITLE_BAR: f32 = if cfg!(target_os = "macos") { 28.0 } else { 6.0 };
 
-impl FerryApp {
+impl TidingsApp {
     pub(super) fn sidebar(&mut self, ui: &mut Ui, palette: &Palette) {
         ui.add_space(TITLE_BAR);
 
@@ -182,7 +182,7 @@ impl FerryApp {
                     .color(palette.secondary),
             );
             ui.separator();
-            if ui.button("Quit Ferry").clicked() {
+            if ui.button("Quit Tidings").clicked() {
                 self.quit(Some(ui.ctx()));
             }
         });

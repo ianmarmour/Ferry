@@ -36,7 +36,7 @@ pub(crate) fn bridge(
 
     let incoming = runtime.clone();
     std::thread::Builder::new()
-        .name("ferry-bt-read".to_string())
+        .name("tidings-bt-read".to_string())
         .spawn(move || {
             let mut buffer = vec![0; 8192];
             loop {
@@ -61,7 +61,7 @@ pub(crate) fn bridge(
         .expect("spawning a thread");
 
     std::thread::Builder::new()
-        .name("ferry-bt-write".to_string())
+        .name("tidings-bt-write".to_string())
         .spawn(move || {
             let mut buffer = vec![0; 8192];
             loop {

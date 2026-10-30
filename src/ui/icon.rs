@@ -1,21 +1,21 @@
-//! The app icon: a ferry on a speech bubble, from `assets/ferry.svg`, rendered at the
+//! The app icon: a tidings on a speech bubble, from `assets/tidings.svg`, rendered at the
 //! sizes in `assets/icons`. The tray adds a red dot while there are unread messages.
 
 /// The rendered sizes, as PNG files.
 pub const PNGS: [(u32, &[u8]); 9] = [
-    (16, include_bytes!("../../assets/icons/ferry-16.png")),
-    (22, include_bytes!("../../assets/icons/ferry-22.png")),
-    (24, include_bytes!("../../assets/icons/ferry-24.png")),
-    (32, include_bytes!("../../assets/icons/ferry-32.png")),
-    (48, include_bytes!("../../assets/icons/ferry-48.png")),
-    (64, include_bytes!("../../assets/icons/ferry-64.png")),
-    (128, include_bytes!("../../assets/icons/ferry-128.png")),
-    (256, include_bytes!("../../assets/icons/ferry-256.png")),
-    (512, include_bytes!("../../assets/icons/ferry-512.png")),
+    (16, include_bytes!("../../assets/icons/tidings-16.png")),
+    (22, include_bytes!("../../assets/icons/tidings-22.png")),
+    (24, include_bytes!("../../assets/icons/tidings-24.png")),
+    (32, include_bytes!("../../assets/icons/tidings-32.png")),
+    (48, include_bytes!("../../assets/icons/tidings-48.png")),
+    (64, include_bytes!("../../assets/icons/tidings-64.png")),
+    (128, include_bytes!("../../assets/icons/tidings-128.png")),
+    (256, include_bytes!("../../assets/icons/tidings-256.png")),
+    (512, include_bytes!("../../assets/icons/tidings-512.png")),
 ];
 
 /// The scalable icon.
-pub const SVG: &[u8] = include_bytes!("../../assets/ferry.svg");
+pub const SVG: &[u8] = include_bytes!("../../assets/tidings.svg");
 
 /// Decodes a PNG into RGBA pixels.
 fn decode(png: &[u8]) -> Option<(Vec<u8>, u32, u32)> {

@@ -2,7 +2,7 @@
 //!
 //! Encoding and parsing of SDP data elements (Bluetooth Core, Vol 3, Part B, section
 //! 3), and the ServiceSearchAttribute transaction (section 4.7) used to find the RFCOMM
-//! channel of a phone's service, for the platforms where Ferry runs SDP itself.
+//! channel of a phone's service, for the platforms where Tidings runs SDP itself.
 //!
 #![cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 

@@ -8,7 +8,7 @@ use egui::{
 
 use super::theme::{bold_font, Palette};
 use super::widgets::{long_date, send_button};
-use super::{FerryApp, View};
+use super::{TidingsApp, View};
 use crate::contacts::{conversation_key, format_address};
 use crate::model::{Direction, Message, Status};
 
@@ -21,7 +21,7 @@ enum Composed {
     Send(String),
 }
 
-impl FerryApp {
+impl TidingsApp {
     pub(super) fn conversation_view(&mut self, ui: &mut Ui, key: &str, palette: &Palette) {
         let messages = self.thread(key);
         let Some(last) = messages.last().cloned() else {

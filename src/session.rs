@@ -220,7 +220,7 @@ impl Session {
 fn attachments_dir(cache_dir: Option<&std::path::Path>) -> PathBuf {
     match cache_dir {
         Some(cache_dir) => cache_dir.join("attachments"),
-        None => std::env::temp_dir().join("ferry-attachments"),
+        None => std::env::temp_dir().join("tidings-attachments"),
     }
 }
 
@@ -228,7 +228,7 @@ fn attachments_dir(cache_dir: Option<&std::path::Path>) -> PathBuf {
 fn photos_dir(cache_dir: Option<&std::path::Path>) -> PathBuf {
     match cache_dir {
         Some(cache_dir) => cache_dir.join("photos"),
-        None => std::env::temp_dir().join("ferry-photos"),
+        None => std::env::temp_dir().join("tidings-photos"),
     }
 }
 

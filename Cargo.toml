@@ -1,21 +1,21 @@
 [package]
-name = "ferry"
-version = "0.2.1"
+name = "tidings"
+version = "0.3.0"
 authors = ["Ian Armour <ianmarmour@gmail.com>"]
 description = "A cross-platform desktop client for texting through your iPhone over Bluetooth MAP"
 edition = "2021"
 rust-version = "1.95"
 readme = "README.md"
 license = "MIT"
-repository = "https://github.com/ianmarmour/Ferry"
+repository = "https://github.com/ianmarmour/Tidings"
 
 [package.metadata.bundle]
-name = "Ferry"
-identifier = "io.github.ianmarmour.ferry"
+name = "Tidings"
+identifier = "io.github.ianmarmour.tidings"
 category = "public.app-category.social-networking"
 short_description = "Text from your computer through your iPhone"
 osx_info_plist_exts = ["macos/Info.plist"]
-icon = ["assets/icons/ferry-32.png", "assets/icons/ferry-128.png", "assets/icons/ferry-256.png", "assets/icons/ferry-512.png"]
+icon = ["assets/icons/tidings-32.png", "assets/icons/tidings-128.png", "assets/icons/tidings-256.png", "assets/icons/tidings-512.png"]
 
 [dependencies]
 anyhow = "1"

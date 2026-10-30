@@ -4,16 +4,16 @@ use egui::{vec2, Align, Frame, Layout, Margin, RichText, Sense, Stroke, Ui};
 
 use super::theme::{bold_font, Palette};
 use super::widgets::{icon_button, paint_phone, paint_refresh};
-use super::FerryApp;
+use super::TidingsApp;
 use crate::session::{Command, State};
 
 const STEPS: [&str; 3] = [
     "Pair your iPhone with this computer in your system's Bluetooth settings.",
     "On the iPhone, open Settings › Bluetooth, tap ⓘ next to this computer and turn on Show Notifications and Sync Contacts.",
-    "Choose your iPhone below. Ferry connects like a car does, so nothing needs to be installed on the phone.",
+    "Choose your iPhone below. Tidings connects like a car does, so nothing needs to be installed on the phone.",
 ];
 
-impl FerryApp {
+impl TidingsApp {
     pub(super) fn welcome(&mut self, ui: &mut Ui, palette: &Palette) {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -21,7 +21,7 @@ impl FerryApp {
                 ui.vertical_centered(|ui| {
                     ui.set_max_width(460.0);
                     ui.add_space((ui.available_height() * 0.12).max(40.0));
-                    ui.label(RichText::new("Ferry").font(bold_font(28.0)));
+                    ui.label(RichText::new("Tidings").font(bold_font(28.0)));
                     ui.add_space(2.0);
                     ui.label(
                         RichText::new("Your iPhone's messages, on your computer.")
@@ -42,7 +42,7 @@ impl FerryApp {
                                 );
                                 ui.label(RichText::new(error).size(12.5));
                                 ui.label(
-                                    RichText::new("Ferry keeps trying in the background.")
+                                    RichText::new("Tidings keeps trying in the background.")
                                         .size(12.5)
                                         .color(palette.secondary),
                                 );

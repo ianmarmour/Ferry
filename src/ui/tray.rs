@@ -1,4 +1,4 @@
-//! The system tray icon, which keeps Ferry reachable while its window is closed.
+//! The system tray icon, which keeps Tidings reachable while its window is closed.
 //!
 //! On Linux it is a StatusNotifierItem over D-Bus (KDE, Xfce, Cinnamon, and GNOME
 //! with the AppIndicator extension); on Windows and macOS it uses the platform tray
@@ -15,7 +15,7 @@ pub enum Wake {
     Session,
     /// Show the window.
     Open,
-    /// Quit Ferry.
+    /// Quit Tidings.
     Quit,
 }
 
@@ -60,9 +60,9 @@ impl Waker {
 
 fn tooltip(unread: usize) -> String {
     match unread {
-        0 => "Ferry".to_string(),
-        1 => "Ferry: 1 unread message".to_string(),
-        unread => format!("Ferry: {} unread messages", unread),
+        0 => "Tidings".to_string(),
+        1 => "Tidings: 1 unread message".to_string(),
+        unread => format!("Tidings: {} unread messages", unread),
     }
 }
 
@@ -96,11 +96,11 @@ mod linux {
 
     impl ksni::Tray for Item {
         fn id(&self) -> String {
-            "ferry".to_string()
+            "tidings".to_string()
         }
 
         fn title(&self) -> String {
-            "Ferry".to_string()
+            "Tidings".to_string()
         }
 
         fn icon_pixmap(&self) -> Vec<ksni::Icon> {
@@ -124,14 +124,14 @@ mod linux {
         fn menu(&self) -> Vec<MenuItem<Self>> {
             vec![
                 StandardItem {
-                    label: "Open Ferry".to_string(),
+                    label: "Open Tidings".to_string(),
                     activate: Box::new(|item: &mut Self| item.waker.wake(Wake::Open)),
                     ..Default::default()
                 }
                 .into(),
                 MenuItem::Separator,
                 StandardItem {
-                    label: "Quit Ferry".to_string(),
+                    label: "Quit Tidings".to_string(),
                     activate: Box::new(|item: &mut Self| item.waker.wake(Wake::Quit)),
                     ..Default::default()
                 }
@@ -207,8 +207,8 @@ mod native {
         /// running.
         pub fn start(waker: Waker) -> Option<Tray> {
             let menu = Menu::new();
-            let open = MenuItem::new("Open Ferry", true, None);
-            let quit = MenuItem::new("Quit Ferry", true, None);
+            let open = MenuItem::new("Open Tidings", true, None);
+            let quit = MenuItem::new("Quit Tidings", true, None);
             menu.append_items(&[&open, &PredefinedMenuItem::separator(), &quit])
                 .ok()?;
 

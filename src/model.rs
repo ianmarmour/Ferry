@@ -1,6 +1,6 @@
 //! ## Messages and Conversations
 //!
-//! The [`Store`] holds everything Ferry knows about one phone: its messages and its
+//! The [`Store`] holds everything Tidings knows about one phone: its messages and its
 //! contacts. It is shared between the UI and the session worker, and cached on disk,
 //! because an iPhone only exposes recent messages over MAP: the history builds up
 //! locally, the way a car kit's does.
@@ -416,7 +416,7 @@ impl Store {
     ///
     /// A message already known from this session (same handle) or an earlier one (same
     /// content and time) is updated rather than added. A message from the phone's Sent
-    /// folder that matches one sent from Ferry replaces the local copy's timestamp.
+    /// folder that matches one sent from Tidings replaces the local copy's timestamp.
     pub fn merge(&mut self, synced: Synced) -> Option<u64> {
         if let Some(message) = self
             .messages
@@ -721,7 +721,7 @@ mod tests {
 
     #[test]
     fn saves_and_loads() {
-        let directory = std::env::temp_dir().join(format!("ferry-store-{}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!("tidings-store-{}", std::process::id()));
         let path = directory.join("phone.json");
 
         let mut store = Store::open(&path);

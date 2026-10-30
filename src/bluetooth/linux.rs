@@ -1,6 +1,6 @@
 //! ## Linux: BlueZ
 //!
-//! Ferry talks to the phone over its own Bluetooth sockets, the way BlueZ's `obexd`
+//! Tidings talks to the phone over its own Bluetooth sockets, the way BlueZ's `obexd`
 //! MAP client does, and uses BlueZ (over D-Bus) only for what needs the daemon:
 //!
 //! * listing the paired devices (`org.freedesktop.DBus.ObjectManager`); and
@@ -13,8 +13,8 @@
 //!
 //! * the phone's services are found with an SDP query over L2CAP and reached over
 //!   RFCOMM sockets, with an encrypted, authenticated link;
-//! * notifications arrive on an RFCOMM socket Ferry listens on, advertised by an SDP
-//!   record registered under a UUID of Ferry's own.
+//! * notifications arrive on an RFCOMM socket Tidings listens on, advertised by an SDP
+//!   record registered under a UUID of Tidings' own.
 //!
 //! Sockets are made non-blocking and driven by tokio. How they are opened is behind
 //! [`Sockets`], so the backend can be tested without Bluetooth hardware.
@@ -43,7 +43,7 @@ const DEVICE: &str = "org.bluez.Device1";
 const ADAPTER: &str = "org.bluez.Adapter1";
 
 /// The object of the notification server record's profile.
-const MNS_PROFILE: &str = "/org/ferry/profile/mns";
+const MNS_PROFILE: &str = "/org/tidings/profile/mns";
 
 /// The UUID the notification server record is registered under. BlueZ only allows one
 /// registration per UUID, and `obexd` usually holds the MNS one; the record itself
@@ -131,7 +131,7 @@ impl Profile {
         _properties: HashMap<String, OwnedValue>,
     ) -> zbus::fdo::Result<()> {
         Err(zbus::fdo::Error::NotSupported(
-            "Ferry accepts connections itself".to_string(),
+            "Tidings accepts connections itself".to_string(),
         ))
     }
 

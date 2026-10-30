@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Ferry connects to your iPhone over Bluetooth to read and send your messages.</string>
+	<string>Tidings connects to your iPhone over Bluetooth to read and send your messages.</string>
 </dict>
 </plist>

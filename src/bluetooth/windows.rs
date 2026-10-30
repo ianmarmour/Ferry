@@ -9,7 +9,7 @@
 //! blocking pool, and sockets are bridged to tokio streams by [`super::bridge`].
 //!
 //! Windows' own Phone Link app talks MAP to iPhones too; if it is connected to the same
-//! phone, quit it before using Ferry.
+//! phone, quit it before using Tidings.
 //!
 use std::io;
 

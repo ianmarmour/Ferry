@@ -75,7 +75,7 @@ pub struct Phone {
 ///
 /// # Examples
 /// ```
-/// use ferry::contacts::conversation_key;
+/// use tidings::contacts::conversation_key;
 ///
 /// assert_eq!(conversation_key("+1 (555) 123-4567"), conversation_key("555.123.4567"));
 /// assert_eq!(conversation_key("Ann@Example.com"), conversation_key("ann@example.com"));
@@ -312,7 +312,7 @@ fn phone_label(types: &[String]) -> Option<String> {
 ///
 /// # Examples
 /// ```
-/// let contacts = ferry::contacts::parse_vcards(
+/// let contacts = tidings::contacts::parse_vcards(
 ///     b"BEGIN:VCARD\r\nVERSION:3.0\r\nN:Appleseed;John;;;\r\nFN:John Appleseed\r\n\
 ///       TEL;TYPE=CELL:+1 555 123 4567\r\nEND:VCARD\r\n",
 /// );

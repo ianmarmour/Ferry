@@ -1,4 +1,4 @@
-//! One Ferry at a time: launching it again shows the window of the one running,
+//! One Tidings at a time: launching it again shows the window of the one running,
 //! which matters once it keeps running in the tray.
 
 use super::tray::Waker;
@@ -28,7 +28,7 @@ pub fn claim(name: &str, waker: Waker) -> bool {
     match UnixListener::bind(&path) {
         Ok(listener) => {
             let watching = std::thread::Builder::new()
-                .name("ferry-instance".to_string())
+                .name("tidings-instance".to_string())
                 .spawn(move || {
                     for stream in listener.incoming().flatten() {
                         let mut line = String::new();

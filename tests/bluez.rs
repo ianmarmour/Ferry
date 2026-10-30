@@ -1,10 +1,10 @@
 //! The BlueZ backend against a fake BlueZ on a private D-Bus.
 //!
-//! The fake implements the parts of BlueZ Ferry uses: the object manager with an
-//! adapter and a paired phone, and `ProfileManager1`, where Ferry publishes its
+//! The fake implements the parts of BlueZ Tidings uses: the object manager with an
+//! adapter and a paired phone, and `ProfileManager1`, where Tidings publishes its
 //! notification server record. Sockets come from [`TestSockets`], which answers SDP
 //! searches and connects "RFCOMM channels" to the simulated iPhone over Unix sockets.
-//! The phone connects back to Ferry's listening socket for notifications.
+//! The phone connects back to Tidings' listening socket for notifications.
 #![cfg(target_os = "linux")]
 
 use std::collections::HashMap;
@@ -15,11 +15,11 @@ use std::process::{Child, Command as Process, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ferry::bluetooth::demo::DemoPhone;
-use ferry::bluetooth::linux::{BlueZ, Sockets, MNS_RECORD_UUID};
-use ferry::bluetooth::{sdp, Backend, Link, Service};
-use ferry::model::{Status, Store};
-use ferry::session::{Command, Event, Outbox, Session, State, Timing};
+use tidings::bluetooth::demo::DemoPhone;
+use tidings::bluetooth::linux::{BlueZ, Sockets, MNS_RECORD_UUID};
+use tidings::bluetooth::{sdp, Backend, Link, Service};
+use tidings::model::{Status, Store};
+use tidings::session::{Command, Event, Outbox, Session, State, Timing};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue};
@@ -61,7 +61,7 @@ impl Drop for Bus {
     }
 }
 
-/// Connects `link` (the phone's side) to a new socket and returns Ferry's end.
+/// Connects `link` (the phone's side) to a new socket and returns Tidings' end.
 fn socket_for(runtime: &tokio::runtime::Handle, mut link: Link) -> OwnedFd {
     let (ours, theirs) = std::os::unix::net::UnixStream::pair().unwrap();
     theirs.set_nonblocking(true).unwrap();
@@ -274,7 +274,7 @@ async fn messages_contacts_and_notifications_through_bluez() {
     let profiles = Profiles::default();
     let _bluez = fake_bluez(&bus.address, profiles.clone()).await;
 
-    let directory = std::env::temp_dir().join(format!("ferry-bluez-{}", std::process::id()));
+    let directory = std::env::temp_dir().join(format!("tidings-bluez-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
     let sockets = Arc::new(TestSockets {
         phone: DemoPhone::new().with_reply_delay(Duration::from_millis(200)),
@@ -314,7 +314,7 @@ async fn messages_contacts_and_notifications_through_bluez() {
     .await;
     assert_eq!(17, store.lock().unwrap().messages.len());
 
-    // The notification record is published under Ferry's own UUID, with its channel.
+    // The notification record is published under Tidings' own UUID, with its channel.
     {
         let profiles = profiles.0.lock().unwrap();
         assert_eq!(1, profiles.len());

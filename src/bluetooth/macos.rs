@@ -60,7 +60,7 @@ define_class!(
     // SAFETY: NSObject has no subclassing requirements, and `ChannelDelegate` does not
     // implement `Drop`.
     #[unsafe(super(NSObject))]
-    #[name = "FerryChannelDelegate"]
+    #[name = "TidingsChannelDelegate"]
     #[ivars = DelegateIvars]
     struct ChannelDelegate;
 
@@ -113,7 +113,7 @@ define_class!(
     // SAFETY: NSObject has no subclassing requirements, and `ChannelObserver` does not
     // implement `Drop`.
     #[unsafe(super(NSObject))]
-    #[name = "FerryChannelObserver"]
+    #[name = "TidingsChannelObserver"]
     #[ivars = ObserverIvars]
     struct ChannelObserver;
 

@@ -1,8 +1,8 @@
 //! ## Desktop Integration (Linux)
 //!
 //! Wayland compositors take an application's icon from its desktop entry, matched by
-//! the window's application id, not from the window. `ferry --install` installs the
-//! entry and the icons for the current user, so Ferry shows its icon in the window
+//! the window's application id, not from the window. `tidings --install` installs the
+//! entry and the icons for the current user, so Tidings shows its icon in the window
 //! decorations, the dock or taskbar, the application launcher and its notifications.
 //!
 use std::io;
@@ -42,7 +42,7 @@ fn entry(executable: &Path) -> String {
     format!(
         "[Desktop Entry]
 Type=Application
-Name=Ferry
+Name=Tidings
 GenericName=Messages
 Comment=Text from your computer through your iPhone
 Exec={exec}
@@ -94,11 +94,38 @@ pub fn install() -> io::Result<()> {
 
     println!("Installed {}", entry_path.display());
     println!(
-        "Ferry is now in your applications, launching {}.",
+        "Tidings is now in your applications, launching {}.",
         executable.display()
     );
-    println!("If you move the binary, run `ferry --install` again.");
+    println!("If you move the binary, run `tidings --install` again.");
     Ok(())
+}
+
+/// The application id of Ferry, as Tidings was called before.
+const LEGACY_APP_ID: &str = "io.github.ianmarmour.Ferry";
+
+/// Removes the desktop entry and icons Ferry installed.
+pub fn remove_legacy() {
+    let Ok(data) = data_home() else { return };
+    let theme = data.join("icons/hicolor");
+    let mut paths = vec![data
+        .join("applications")
+        .join(format!("{LEGACY_APP_ID}.desktop"))];
+    paths.extend(
+        icon::PNGS
+            .iter()
+            .map(|(size, _)| theme.join(format!("{size}x{size}/apps/{LEGACY_APP_ID}.png"))),
+    );
+    paths.push(theme.join(format!("scalable/apps/{LEGACY_APP_ID}.svg")));
+
+    let removed = paths
+        .iter()
+        .filter(|path| std::fs::remove_file(path).is_ok())
+        .count();
+    if removed > 0 {
+        refresh(&data);
+        log::info!("removed the desktop entry of Ferry, the former name of Tidings");
+    }
 }
 
 /// Removes what [`install`] installed.
@@ -153,8 +180,8 @@ mod tests {
 
     #[test]
     fn entry_names_the_icon_and_window_class() {
-        let entry = entry(Path::new("/opt/My Apps/ferry"));
-        assert!(entry.contains("Exec=/opt/My\\sApps/ferry\n"));
+        let entry = entry(Path::new("/opt/My Apps/tidings"));
+        assert!(entry.contains("Exec=/opt/My\\sApps/tidings\n"));
         assert!(entry.contains(&format!("Icon={}\n", APP_ID)));
         assert!(entry.contains(&format!("StartupWMClass={}\n", APP_ID)));
     }

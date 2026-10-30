@@ -1,6 +1,6 @@
 //! ## Demo Phone
 //!
-//! A simulated iPhone, for trying Ferry without a phone (`ferry --demo`) and for the
+//! A simulated iPhone, for trying Tidings without a phone (`tidings --demo`) and for the
 //! end to end tests. It runs real MAP and PBAP servers from the `map` and `obex`
 //! crates over in-memory streams, so everything above the Bluetooth stack works as
 //! it does with a phone: browsing, downloading, sending, contacts and notifications.
@@ -148,19 +148,19 @@ fn base64(data: &[u8]) -> String {
 /// The MMS content of a photo message, with the picture if `attachment`.
 fn photo_message(caption: &str, png: &[u8], attachment: bool) -> String {
     let mut body = format!(
-        "Content-Type: multipart/related; boundary=\"ferry\"\r\n\r\n\
-         --ferry\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{}\r\n",
+        "Content-Type: multipart/related; boundary=\"tidings\"\r\n\r\n\
+         --tidings\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{}\r\n",
         caption
     );
     if attachment {
         body.push_str(
-            "--ferry\r\nContent-Type: image/png; name=\"sunset.png\"\r\n\
+            "--tidings\r\nContent-Type: image/png; name=\"sunset.png\"\r\n\
              Content-Transfer-Encoding: base64\r\n\r\n",
         );
         body.push_str(&base64(png));
         body.push_str("\r\n");
     }
-    body.push_str("--ferry--\r\n");
+    body.push_str("--tidings--\r\n");
     body
 }
 

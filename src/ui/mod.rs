@@ -5,7 +5,7 @@
 //! phone itself; it reads the shared [`Store`] and sends [`Command`]s to the
 //! [`Session`].
 //!
-//! Closing the window keeps Ferry running in the system tray, connected to the phone
+//! Closing the window keeps Tidings running in the system tray, connected to the phone
 //! and showing notifications. On Windows and macOS the window is hidden; on Linux,
 //! where Wayland cannot hide windows, it is closed and opened again from the tray.
 //!
@@ -41,7 +41,7 @@ use theme::Palette;
 use tray::{Tray, Wake, Waker};
 
 /// The application id: the name of the desktop entry and icon on Linux.
-pub const APP_ID: &str = "io.github.ianmarmour.Ferry";
+pub const APP_ID: &str = "io.github.ianmarmour.Tidings";
 
 /// Whether closing the window hides it, rather than closing it and opening a new one
 /// later. Wayland does not let applications hide their windows.
@@ -59,13 +59,13 @@ struct Settings {
     notifications: bool,
     /// Light, dark, or following the system.
     appearance: Appearance,
-    /// Whether closing the window keeps Ferry running in the tray.
+    /// Whether closing the window keeps Tidings running in the tray.
     keep_running: bool,
 }
 
 impl Settings {
     fn path() -> Option<PathBuf> {
-        directories::ProjectDirs::from("", "", "Ferry")
+        directories::ProjectDirs::from("", "", "Tidings")
             .map(|dirs| dirs.config_dir().join("settings.json"))
     }
 
@@ -141,9 +141,9 @@ struct Notice {
     since: Instant,
 }
 
-/// Ferry: the session, the tray and the state of the window, which outlive the
+/// Tidings: the session, the tray and the state of the window, which outlive the
 /// window itself.
-pub struct FerryApp {
+pub struct TidingsApp {
     session: Session,
     events: mpsc::UnboundedReceiver<Event>,
     store: Arc<Mutex<Store>>,
@@ -157,7 +157,7 @@ pub struct FerryApp {
     /// Whether the window is showing.
     visible: bool,
     quitting: bool,
-    /// Whether the user was told that closing keeps Ferry in the tray.
+    /// Whether the user was told that closing keeps Tidings in the tray.
     told_about_tray: bool,
     saved_settings: Settings,
 
@@ -180,10 +180,10 @@ pub struct FerryApp {
 
 /// Where messages are cached.
 pub fn cache_dir() -> Option<PathBuf> {
-    directories::ProjectDirs::from("", "", "Ferry").map(|dirs| dirs.data_dir().join("phones"))
+    directories::ProjectDirs::from("", "", "Tidings").map(|dirs| dirs.data_dir().join("phones"))
 }
 
-impl FerryApp {
+impl TidingsApp {
     /// Starts the session on `runtime`. A `demo` session keeps nothing on disk.
     fn new(
         backend: Arc<dyn Backend>,
@@ -191,7 +191,7 @@ impl FerryApp {
         demo: bool,
         waker: Waker,
         wakes: Receiver<Wake>,
-    ) -> FerryApp {
+    ) -> TidingsApp {
         let settings = if demo {
             Settings::default()
         } else {
@@ -234,7 +234,7 @@ impl FerryApp {
         #[cfg(not(target_os = "linux"))]
         let tray = None;
 
-        FerryApp {
+        TidingsApp {
             session,
             events,
             store,
@@ -280,12 +280,12 @@ impl FerryApp {
         }
     }
 
-    /// Whether closing the window keeps Ferry running.
+    /// Whether closing the window keeps Tidings running.
     fn keeps_running(&self) -> bool {
         self.tray.is_some() && self.settings.keep_running && !self.quitting
     }
 
-    /// Quits Ferry.
+    /// Quits Tidings.
     fn quit(&mut self, ctx: Option<&egui::Context>) {
         self.quitting = true;
         if let Some(ctx) = ctx {
@@ -343,7 +343,7 @@ impl FerryApp {
     /// Opens the window and runs it until it closes.
     fn show_window(&mut self) -> eframe::Result {
         let mut viewport = egui::ViewportBuilder::default()
-            .with_title("Ferry")
+            .with_title("Tidings")
             .with_app_id(APP_ID)
             .with_icon(Arc::new(icon::window_icon()))
             .with_inner_size([1000.0, 680.0])
@@ -358,7 +358,7 @@ impl FerryApp {
             viewport,
             ..Default::default()
         };
-        let name = if self.demo { "Ferry Demo" } else { "Ferry" };
+        let name = if self.demo { "Tidings Demo" } else { "Tidings" };
 
         let result = eframe::run_native(
             name,
@@ -500,8 +500,8 @@ impl FerryApp {
 
     fn update_title(&mut self, ctx: &egui::Context, unread: usize) {
         let title = match unread {
-            0 => "Ferry".to_string(),
-            unread => format!("Ferry ({})", unread),
+            0 => "Tidings".to_string(),
+            unread => format!("Tidings ({})", unread),
         };
         if title != self.title {
             ctx.send_viewport_cmd(ViewportCommand::Title(title.clone()));
@@ -622,8 +622,8 @@ impl FerryApp {
     }
 }
 
-/// A window onto [`FerryApp`].
-struct Window<'a>(&'a mut FerryApp);
+/// A window onto [`TidingsApp`].
+struct Window<'a>(&'a mut TidingsApp);
 
 impl eframe::App for Window<'_> {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -647,8 +647,8 @@ impl eframe::App for Window<'_> {
             if !app.told_about_tray {
                 app.told_about_tray = true;
                 app.notifier.show(
-                    "Ferry is still running",
-                    "New messages will keep arriving. Open or quit Ferry from its tray icon.",
+                    "Tidings is still running",
+                    "New messages will keep arriving. Open or quit Tidings from its tray icon.",
                     None,
                 );
             }
@@ -674,20 +674,20 @@ impl eframe::App for Window<'_> {
     }
 }
 
-/// Runs Ferry until it quits: the window, then the tray while the window is closed.
+/// Runs Tidings until it quits: the window, then the tray while the window is closed.
 pub fn run(
     backend: Arc<dyn Backend>,
     runtime: tokio::runtime::Handle,
     demo: bool,
 ) -> eframe::Result {
     let (waker, wakes) = Waker::new();
-    let name = if demo { "ferry-demo" } else { "ferry" };
+    let name = if demo { "tidings-demo" } else { "tidings" };
     if !instance::claim(name, waker.clone()) {
-        log::info!("Ferry is already running; showing its window");
+        log::info!("Tidings is already running; showing its window");
         return Ok(());
     }
 
-    let mut app = FerryApp::new(backend, runtime, demo, waker, wakes);
+    let mut app = TidingsApp::new(backend, runtime, demo, waker, wakes);
     loop {
         app.show_window()?;
         if app.quitting || !app.keeps_running() || !app.background() {

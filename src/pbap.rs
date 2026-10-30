@@ -35,7 +35,7 @@ pub mod tag {
     pub const PHONEBOOK_SIZE: u8 = 0x08;
 }
 
-/// The vCard properties Ferry needs: VERSION, FN, N, TEL, EMAIL and ORG. Leaving out
+/// The vCard properties Tidings needs: VERSION, FN, N, TEL, EMAIL and ORG. Leaving out
 /// PHOTO in particular keeps the download small.
 pub const PROPERTIES: u64 = 1 | 1 << 1 | 1 << 2 | 1 << 7 | 1 << 8 | 1 << 16;
 

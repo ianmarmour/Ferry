@@ -1,6 +1,6 @@
 //! ## Bluetooth
 //!
-//! Ferry needs three things from the platform's Bluetooth stack, the same things a
+//! Tidings needs three things from the platform's Bluetooth stack, the same things a
 //! car kit uses:
 //!
 //! * the list of paired devices;
@@ -10,7 +10,7 @@
 //!   connects to in order to report new messages.
 //!
 //! Each platform implements [`Backend`]: BlueZ over D-Bus on Linux, WinRT on Windows
-//! and IOBluetooth on macOS. [`demo`] simulates an iPhone, for trying Ferry without
+//! and IOBluetooth on macOS. [`demo`] simulates an iPhone, for trying Tidings without
 //! one and for tests. Connections are handed over as tokio streams, ready for the
 //! async clients of the `map` and `obex` crates.
 //!
@@ -75,7 +75,7 @@ pub struct Device {
     pub phone: bool,
 }
 
-/// The phone services Ferry connects to.
+/// The phone services Tidings connects to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Service {
     /// The Message Access Server (MAP MAS, UUID 0x1132).
@@ -104,14 +104,14 @@ pub fn uuid128(uuid16: u16) -> String {
     format!("0000{:04x}-0000-1000-8000-00805f9b34fb", uuid16)
 }
 
-/// The `MapSupportedFeatures` Ferry advertises in its notification server record:
+/// The `MapSupportedFeatures` Tidings advertises in its notification server record:
 /// notification registration, notifications, browsing, uploading and delete
 /// (`0x1F`, the MAP 1.0 feature set) plus the extended event reports of MAP 1.2,
 /// which carry the sender and text of new messages.
 pub const MNS_FEATURES: u32 = 0x1F | 1 << 6;
 
-/// Service name of Ferry's notification server record.
-pub const MNS_SERVICE_NAME: &str = "Ferry MAP MNS";
+/// Service name of Tidings' notification server record.
+pub const MNS_SERVICE_NAME: &str = "Tidings MAP MNS";
 
 /// Incoming notification connections, until dropped.
 pub struct Listener {

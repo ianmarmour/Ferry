@@ -19,7 +19,7 @@ impl Notifier {
     /// Notifies of a message from `sender`, with the sender's photo if there is one.
     pub fn show(&self, sender: &str, text: &str, photo: Option<&std::path::Path>) {
         let mut notification = notify_rust::Notification::new();
-        notification.appname("Ferry").summary(sender).body(text);
+        notification.appname("Tidings").summary(sender).body(text);
         if let Some(photo) = photo {
             notification.image_path(&photo.to_string_lossy());
         }

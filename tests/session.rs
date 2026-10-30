@@ -4,11 +4,11 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ferry::bluetooth::demo::DemoPhone;
-use ferry::bluetooth::Backend;
-use ferry::contacts::conversation_key;
-use ferry::model::{AttachmentKind, Direction, Status, Store};
-use ferry::session::{Command, Event, Outbox, Session, State, Timing};
+use tidings::bluetooth::demo::DemoPhone;
+use tidings::bluetooth::Backend;
+use tidings::contacts::conversation_key;
+use tidings::model::{AttachmentKind, Direction, Status, Store};
+use tidings::session::{Command, Event, Outbox, Session, State, Timing};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 
