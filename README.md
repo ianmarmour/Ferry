@@ -30,7 +30,7 @@ When you connect, Ferry:
 
 1. opens the phone's **Message Access Server** (MAP MAS) and goes to `telecom/msg`;
 2. publishes its own **Message Notification Server** (MAP MNS) and registers for notifications, so the phone reports new messages and deliveries as they happen;
-3. downloads your contacts over **PBAP** on a second channel;
+3. downloads your contacts over **PBAP** on a second channel, then their photos, which become avatars;
 4. lists the inbox and Sent folder and downloads the messages it hasn't seen, one at a time between your commands, so sending is never stuck behind a sync;
 5. sends your texts by pushing them to the phone's outbox.
 

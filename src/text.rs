@@ -130,7 +130,8 @@ fn mime_text(entity: &str) -> Option<String> {
     }
 }
 
-fn decode_base64(text: &str) -> Vec<u8> {
+/// Decodes base64, skipping line breaks and other characters outside the alphabet.
+pub(crate) fn decode_base64(text: &str) -> Vec<u8> {
     let mut out = Vec::new();
     let mut buffer = 0u32;
     let mut bits = 0;

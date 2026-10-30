@@ -584,14 +584,73 @@ impl MessageStore for Mas {
 /// The PBAP server of the demo phone.
 struct PhoneBook;
 
+/// Portrait colors of the demo people who have a photo: background, skin, shirt.
+const PORTRAITS: [(usize, [u8; 3], [u8; 3], [u8; 3]); 3] = [
+    (0, [250, 196, 140], [233, 180, 150], [82, 112, 196]),
+    (1, [168, 214, 200], [214, 160, 120], [196, 72, 98]),
+    (4, [190, 170, 230], [160, 110, 80], [240, 176, 60]),
+];
+
+/// Draws a simple portrait: a head and shoulders on a plain background.
+fn portrait(background: [u8; 3], skin: [u8; 3], shirt: [u8; 3]) -> Vec<u8> {
+    let size = 96u32;
+    let mut pixels = Vec::with_capacity((size * size * 4) as usize);
+    for y in 0..size {
+        for x in 0..size {
+            let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
+            let head = ((fx - 48.0) / 17.0).powi(2) + ((fy - 40.0) / 20.0).powi(2) <= 1.0;
+            let hair =
+                ((fx - 48.0) / 19.0).powi(2) + ((fy - 34.0) / 18.0).powi(2) <= 1.0 && fy < 36.0;
+            let body = ((fx - 48.0) / 36.0).powi(2) + ((fy - 100.0) / 34.0).powi(2) <= 1.0;
+            let color = if hair {
+                [70, 50, 40]
+            } else if head {
+                skin
+            } else if body {
+                shirt
+            } else {
+                let shade = 1.0 - fy / size as f32 * 0.18;
+                background.map(|channel| (f32::from(channel) * shade) as u8)
+            };
+            pixels.extend(color);
+            pixels.push(255);
+        }
+    }
+
+    let mut png = Vec::new();
+    let mut encoder = png::Encoder::new(&mut png, size, size);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().expect("in memory");
+    writer.write_image_data(&pixels).expect("in memory");
+    drop(writer);
+    png
+}
+
+/// A vCard 3.0 PHOTO property, folded as vCards require.
+fn photo_property(png: &[u8]) -> String {
+    let data = base64(png).replace("\r\n", "");
+    let lines: Vec<&str> = data
+        .as_bytes()
+        .chunks(74)
+        .map(|chunk| std::str::from_utf8(chunk).expect("base64 is ASCII"))
+        .collect();
+    format!("PHOTO;ENCODING=b;TYPE=PNG:{}\r\n", lines.join("\r\n "))
+}
+
 impl PhoneBook {
-    fn vcards(offset: usize, count: usize) -> Vec<u8> {
+    fn vcards(offset: usize, count: usize, photos: bool) -> Vec<u8> {
         let mut cards = String::from("BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Me\r\nN:;;;;\r\nTEL;TYPE=CELL:+14155550100\r\nEND:VCARD\r\n");
-        for (name, number) in PEOPLE {
+        for (person, (name, number)) in PEOPLE.iter().enumerate() {
             let (given, family) = name.split_once(' ').unwrap_or((name, ""));
             cards.push_str(&format!(
-                "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:{name}\r\nN:{family};{given};;;\r\nTEL;TYPE=CELL:{number}\r\nEND:VCARD\r\n"
+                "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:{name}\r\nN:{family};{given};;;\r\nTEL;TYPE=CELL:{number}\r\n"
             ));
+            let portrait_colors = PORTRAITS.iter().find(|(who, ..)| *who == person);
+            if let (true, Some((_, background, skin, shirt))) = (photos, portrait_colors) {
+                cards.push_str(&photo_property(&portrait(*background, *skin, *shirt)));
+            }
+            cards.push_str("END:VCARD\r\n");
         }
         cards
             .split_inclusive("END:VCARD\r\n")
@@ -619,7 +678,12 @@ impl Handler for PhoneBook {
                 .with_u16(pbap::tag::PHONEBOOK_SIZE, PEOPLE.len() as u16 + 1);
             return Ok(Object::headers_only([Header::ApplicationParameters(size)]));
         }
-        Ok(Object::new([], PhoneBook::vcards(offset, count)))
+        // An absent or empty PropertySelector asks for every property.
+        let properties = parameters
+            .and_then(|p| p.get_u64(pbap::tag::PROPERTY_SELECTOR))
+            .unwrap_or(0);
+        let photos = properties == 0 || properties & pbap::PHOTO != 0;
+        Ok(Object::new([], PhoneBook::vcards(offset, count, photos)))
     }
 }
 

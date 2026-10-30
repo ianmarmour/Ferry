@@ -231,7 +231,7 @@ impl FerryApp {
     /// Lists the contacts matching the To field; returns the one picked.
     fn contact_picker(&mut self, ui: &mut Ui, palette: &Palette) -> Option<(String, String)> {
         let query = self.compose.query.clone();
-        let entries: Vec<(String, String, String)> = {
+        let entries: Vec<(String, String, String, Option<std::path::PathBuf>)> = {
             let store = self.store();
             store
                 .contacts
@@ -248,7 +248,9 @@ impl FerryApp {
                         .map(|email| ("email".to_string(), email.clone()));
                     phones
                         .chain(emails)
-                        .map(|(label, address)| (contact.name.clone(), label, address))
+                        .map(|(label, address)| {
+                            (contact.name.clone(), label, address, contact.photo.clone())
+                        })
                         .collect::<Vec<_>>()
                 })
                 .take(200)
@@ -273,12 +275,22 @@ impl FerryApp {
                 }
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    for (name, label, address) in &entries {
+                    for (name, label, address, photo) in &entries {
+                        let avatar = photo
+                            .as_deref()
+                            .and_then(|path| self.photos.avatar(ui.ctx(), path));
                         let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 46.0), Sense::click());
                         if response.hovered() {
                             ui.painter().rect_filled(rect, 8.0, palette.field.gamma_multiply(0.6));
                         }
-                        super::widgets::paint_avatar(ui, pos2(rect.left() + 24.0, rect.center().y), 16.0, name, palette);
+                        super::widgets::paint_avatar(
+                            ui,
+                            pos2(rect.left() + 24.0, rect.center().y),
+                            16.0,
+                            name,
+                            avatar.as_ref(),
+                            palette,
+                        );
                         let painter = ui.painter();
                         painter.text(
                             pos2(rect.left() + 50.0, rect.top() + 7.0),

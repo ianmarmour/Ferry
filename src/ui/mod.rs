@@ -463,7 +463,11 @@ impl FerryApp {
             notified = true;
             if self.settings.notifications {
                 let title = store.display_name(&message.address, message.name.as_deref());
-                self.notifier.show(&title, &message.summary());
+                let photo = store
+                    .contact(&message.address)
+                    .and_then(|contact| contact.photo.clone());
+                self.notifier
+                    .show(&title, &message.summary(), photo.as_deref());
             }
         }
 
@@ -645,6 +649,7 @@ impl eframe::App for Window<'_> {
                 app.notifier.show(
                     "Ferry is still running",
                     "New messages will keep arriving. Open or quit Ferry from its tray icon.",
+                    None,
                 );
             }
         }

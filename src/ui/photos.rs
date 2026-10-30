@@ -12,22 +12,35 @@ use crate::model::{Attachment, AttachmentKind, Direction, Message};
 #[derive(Default)]
 pub(super) struct Photos {
     textures: HashMap<PathBuf, Option<egui::TextureHandle>>,
+    avatars: HashMap<PathBuf, Option<egui::TextureHandle>>,
 }
 
 impl Photos {
     fn texture(&mut self, ctx: &egui::Context, path: &Path) -> Option<egui::TextureHandle> {
         self.textures
             .entry(path.to_path_buf())
-            .or_insert_with(|| load(ctx, path))
+            .or_insert_with(|| load(ctx, path, 640))
+            .clone()
+    }
+
+    /// A contact photo, small enough for an avatar.
+    pub(super) fn avatar(
+        &mut self,
+        ctx: &egui::Context,
+        path: &Path,
+    ) -> Option<egui::TextureHandle> {
+        self.avatars
+            .entry(path.to_path_buf())
+            .or_insert_with(|| load(ctx, path, 128))
             .clone()
     }
 }
 
-/// Decodes a photo, scaled down to at most 640 pixels on a side.
-fn load(ctx: &egui::Context, path: &Path) -> Option<egui::TextureHandle> {
+/// Decodes a photo, scaled down to at most `largest` pixels on a side.
+fn load(ctx: &egui::Context, path: &Path, largest: u32) -> Option<egui::TextureHandle> {
     let bytes = std::fs::read(path).ok()?;
     let image = match image::load_from_memory(&bytes) {
-        Ok(image) => image.thumbnail(640, 640).to_rgba8(),
+        Ok(image) => image.thumbnail(largest, largest).to_rgba8(),
         Err(error) => {
             log::info!("cannot show {}: {}", path.display(), error);
             return None;
@@ -35,11 +48,11 @@ fn load(ctx: &egui::Context, path: &Path) -> Option<egui::TextureHandle> {
     };
     let size = [image.width() as usize, image.height() as usize];
     let color = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
-    Some(ctx.load_texture(
-        path.display().to_string(),
-        color,
-        egui::TextureOptions::LINEAR,
-    ))
+    let options = egui::TextureOptions {
+        mipmap_mode: Some(egui::TextureFilter::Linear),
+        ..egui::TextureOptions::LINEAR
+    };
+    Some(ctx.load_texture(format!("{}@{}", path.display(), largest), color, options))
 }
 
 /// Opens a file with the system's default application.

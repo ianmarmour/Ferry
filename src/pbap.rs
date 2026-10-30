@@ -39,6 +39,9 @@ pub mod tag {
 /// PHOTO in particular keeps the download small.
 pub const PROPERTIES: u64 = 1 | 1 << 1 | 1 << 2 | 1 << 7 | 1 << 8 | 1 << 16;
 
+/// The PHOTO property, requested separately as photos make the download much larger.
+pub const PHOTO: u64 = 1 << 3;
+
 /// How many contacts to request at a time.
 const PAGE: u16 = 250;
 
@@ -98,18 +101,29 @@ impl<T: AsyncRead + AsyncWrite + Unpin> PbapClient<T> {
             .and_then(|parameters| parameters.get_u16(tag::PHONEBOOK_SIZE)))
     }
 
-    /// Downloads up to `count` vCards from position `offset`.
-    pub async fn pull_phonebook(&mut self, offset: u16, count: u16) -> obex::Result<Vec<u8>> {
+    /// Downloads up to `count` vCards from position `offset`, with the properties in
+    /// `properties` (a PBAP PropertySelector).
+    pub async fn pull_phonebook(
+        &mut self,
+        offset: u16,
+        count: u16,
+        properties: u64,
+    ) -> obex::Result<Vec<u8>> {
         let parameters = ApplicationParameters::new()
             .with_u8(tag::FORMAT, 1)
-            .with_u64(tag::PROPERTY_SELECTOR, PROPERTIES)
+            .with_u64(tag::PROPERTY_SELECTOR, properties)
             .with_u16(tag::MAX_LIST_COUNT, count)
             .with_u16(tag::LIST_START_OFFSET, offset);
         Ok(self.pull(parameters).await?.body)
     }
 
-    /// Downloads every contact that can be texted.
-    pub async fn contacts(&mut self) -> obex::Result<Vec<Contact>> {
+    /// Downloads every contact that can be texted, with their photos if `photos`.
+    pub async fn contacts(&mut self, photos: bool) -> obex::Result<Vec<Contact>> {
+        let properties = if photos {
+            PROPERTIES | PHOTO
+        } else {
+            PROPERTIES
+        };
         let size = self.phonebook_size().await.ok().flatten();
         let mut data = Vec::new();
 
@@ -117,7 +131,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin> PbapClient<T> {
             Some(size) => {
                 let mut offset = 0;
                 while offset < size {
-                    let page = self.pull_phonebook(offset, PAGE.min(size - offset)).await?;
+                    let page = self
+                        .pull_phonebook(offset, PAGE.min(size - offset), properties)
+                        .await?;
                     let cards = count_vcards(&page);
                     data.extend_from_slice(&page);
                     data.extend_from_slice(b"\r\n");
@@ -127,7 +143,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> PbapClient<T> {
                     offset = offset.saturating_add(cards);
                 }
             }
-            None => data = self.pull_phonebook(0, u16::MAX).await?,
+            None => data = self.pull_phonebook(0, u16::MAX, properties).await?,
         }
 
         Ok(parse_vcards(&data))

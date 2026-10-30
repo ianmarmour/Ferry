@@ -179,6 +179,8 @@ pub struct Conversation {
     pub time: i64,
     /// The number of unread received messages.
     pub unread: usize,
+    /// The contact's photo.
+    pub photo: Option<PathBuf>,
 }
 
 /// How far apart a locally sent message and its copy in the phone's Sent folder can
@@ -270,6 +272,28 @@ impl Store {
     fn next_id(&mut self) -> u64 {
         self.next_id += 1;
         self.next_id
+    }
+
+    /// Replaces the contacts; with `keep_photos`, contacts without a photo keep the
+    /// one they had, for downloads made without photos.
+    pub fn replace_contacts(&mut self, mut contacts: Vec<Contact>, keep_photos: bool) {
+        if keep_photos {
+            for contact in contacts
+                .iter_mut()
+                .filter(|contact| contact.photo.is_none())
+            {
+                let first = contact.addresses().next().map(conversation_key);
+                contact.photo = self
+                    .contacts
+                    .iter()
+                    .find(|old| {
+                        old.name == contact.name
+                            && old.addresses().next().map(conversation_key) == first
+                    })
+                    .and_then(|old| old.photo.clone());
+            }
+        }
+        self.set_contacts(contacts);
     }
 
     /// Replaces the contacts.
@@ -497,6 +521,9 @@ impl Store {
                     title: self.display_name(&last.address, name),
                     address: last.address.clone(),
                     preview: last.summary(),
+                    photo: self
+                        .contact(&last.address)
+                        .and_then(|contact| contact.photo.clone()),
                     time: last.time,
                     unread,
                     key,
@@ -659,7 +686,7 @@ mod tests {
                 number: "(555) 123-0002".to_string(),
                 label: "mobile".to_string(),
             }],
-            emails: Vec::new(),
+            ..Contact::default()
         }]);
         assert_eq!("Ann (phone)", store.conversations()[0].title);
 
@@ -669,7 +696,7 @@ mod tests {
                 number: "555-123-0001".to_string(),
                 label: "mobile".to_string(),
             }],
-            emails: Vec::new(),
+            ..Contact::default()
         }]);
         assert_eq!("Ann", store.conversations()[0].title);
     }

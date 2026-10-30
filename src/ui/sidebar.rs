@@ -63,7 +63,12 @@ impl FerryApp {
                 }
                 for conversation in &conversations {
                     let selected = self.view == View::Conversation(conversation.key.clone());
-                    let row = conversation_row(ui, conversation, selected, palette);
+                    let avatar = conversation
+                        .photo
+                        .as_deref()
+                        .and_then(|path| self.photos.avatar(ui.ctx(), path));
+                    let row =
+                        conversation_row(ui, conversation, selected, avatar.as_ref(), palette);
                     if row.clicked() {
                         self.open(conversation.key.clone());
                     }
@@ -214,6 +219,7 @@ fn conversation_row(
     ui: &mut Ui,
     conversation: &Conversation,
     selected: bool,
+    avatar: Option<&egui::TextureHandle>,
     palette: &Palette,
 ) -> Response {
     let height = 66.0;
@@ -249,10 +255,10 @@ fn conversation_row(
         painter.circle_filled(pos2(row.left() + 9.0, row.center().y), 4.5, dot);
     }
 
-    let avatar = pos2(row.left() + 40.0, row.center().y);
-    paint_avatar(ui, avatar, 21.0, &conversation.title, palette);
+    let center = pos2(row.left() + 40.0, row.center().y);
+    paint_avatar(ui, center, 21.0, &conversation.title, avatar, palette);
 
-    let left = avatar.x + 31.0;
+    let left = center.x + 31.0;
     let right = row.right() - 10.0;
     let date = ui.painter().layout_no_wrap(
         short_date(conversation.time),

@@ -96,6 +96,12 @@ async fn downloads_messages_and_contacts() {
     harness
         .until_store("contacts", |store| store.contacts.len() == 7)
         .await;
+    // Photos arrive in a second pass.
+    harness
+        .until_store("contact photos", |store| {
+            store.contacts.iter().filter(|c| c.photo.is_some()).count() == 3
+        })
+        .await;
 
     let store = harness.store.lock().unwrap();
     assert_eq!(17, store.messages.len());
@@ -107,6 +113,8 @@ async fn downloads_messages_and_contacts() {
         .find(|c| c.key == conversation_key(JANE))
         .unwrap();
     assert_eq!("Jane Appleseed", jane.title);
+    let photo = jane.photo.as_ref().expect("Jane has a photo");
+    assert!(std::fs::read(photo).unwrap().starts_with(b"\x89PNG"));
     assert_eq!("Perfect, I'll bring coffee ☕️", jane.preview);
     assert_eq!(1, jane.unread);
 

@@ -33,6 +33,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{timeout, Instant};
 
 use crate::bluetooth::{AsyncStream, Backend, Device, Service};
+use crate::contacts::Contact;
 use crate::model::{Attachment, Direction, Status, Store, Synced};
 use crate::pbap::PbapClient;
 use crate::text::{self, message_text, Part};
@@ -202,6 +203,7 @@ impl Session {
             commands: receiver,
             pending: VecDeque::new(),
             attachments_dir: attachments_dir(cache_dir_for_attachments.as_deref()),
+            photos_dir: photos_dir(cache_dir_for_attachments.as_deref()),
         };
         tokio::spawn(worker.run());
         Session { commands }
@@ -219,6 +221,14 @@ fn attachments_dir(cache_dir: Option<&std::path::Path>) -> PathBuf {
     match cache_dir {
         Some(cache_dir) => cache_dir.join("attachments"),
         None => std::env::temp_dir().join("ferry-attachments"),
+    }
+}
+
+/// Where contact photos are kept.
+fn photos_dir(cache_dir: Option<&std::path::Path>) -> PathBuf {
+    match cache_dir {
+        Some(cache_dir) => cache_dir.join("photos"),
+        None => std::env::temp_dir().join("ferry-photos"),
     }
 }
 
@@ -352,6 +362,8 @@ struct Worker {
     pending: VecDeque<Command>,
     /// Where downloaded attachments are kept.
     attachments_dir: PathBuf,
+    /// Where contact photos are kept.
+    photos_dir: PathBuf,
 }
 
 impl Worker {
@@ -1007,29 +1019,57 @@ impl Worker {
         self.save().await;
     }
 
-    /// Downloads the contacts in the background.
+    /// Downloads the contacts in the background: first without photos, which is quick,
+    /// then with them.
     fn spawn_contacts(&self, device: &Device) -> AbortOnDrop {
         let backend = self.backend.clone();
         let store = self.store.clone();
         let outbox = self.outbox.clone();
         let device = device.clone();
+        let photos_dir = self.photos_dir.clone();
 
         AbortOnDrop(tokio::spawn(async move {
-            let downloading = timeout(Duration::from_secs(180), download_contacts(backend, device));
-            let error = match downloading.await {
-                Ok(Ok(contacts)) if contacts.is_empty() => {
-                    "the phone shared no contacts".to_string()
-                }
-                Ok(Ok(contacts)) => {
-                    log::info!("downloaded {} contacts", contacts.len());
+            let apply = |contacts: Vec<Contact>, keep_photos: bool| {
+                let store = store.clone();
+                let outbox = outbox.clone();
+                async move {
                     store
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .set_contacts(contacts);
+                        .replace_contacts(contacts, keep_photos);
                     save_store(&store).await;
                     outbox.emit(Event::Changed);
-                    return;
                 }
+            };
+
+            let downloading = async {
+                let link = backend.connect(&device, Service::PhoneBook).await?;
+                let mut pbap = PbapClient::new(link.stream, link.packet_mtu);
+                pbap.connect().await?;
+
+                let contacts = pbap.contacts(false).await?;
+                if contacts.is_empty() {
+                    anyhow::bail!("the phone shared no contacts");
+                }
+                log::info!("downloaded {} contacts", contacts.len());
+                apply(contacts, true).await;
+
+                match pbap.contacts(true).await {
+                    Ok(contacts) if !contacts.is_empty() => {
+                        let contacts = save_photos(photos_dir, contacts).await;
+                        let count = contacts.iter().filter(|c| c.photo.is_some()).count();
+                        log::info!("downloaded {} contact photos", count);
+                        apply(contacts, false).await;
+                    }
+                    Ok(_) => {}
+                    Err(error) => log::info!("cannot download contact photos: {}", error),
+                }
+                let _ = pbap.disconnect().await;
+                Ok(())
+            };
+
+            let error = match timeout(Duration::from_secs(600), downloading).await {
+                Ok(Ok(())) => return,
                 Ok(Err(error)) => format!("{:#}", error),
                 Err(_) => "the phone stopped answering".to_string(),
             };
@@ -1042,16 +1082,33 @@ impl Worker {
     }
 }
 
-async fn download_contacts(
-    backend: Arc<dyn Backend>,
-    device: Device,
-) -> anyhow::Result<Vec<crate::contacts::Contact>> {
-    let link = backend.connect(&device, Service::PhoneBook).await?;
-    let mut pbap = PbapClient::new(link.stream, link.packet_mtu);
-    pbap.connect().await?;
-    let contacts = pbap.contacts().await?;
-    let _ = pbap.disconnect().await;
-    Ok(contacts)
+/// Saves the contacts' photos, under names derived from their content.
+async fn save_photos(directory: PathBuf, mut contacts: Vec<Contact>) -> Vec<Contact> {
+    tokio::task::spawn_blocking(move || {
+        for contact in &mut contacts {
+            let Some(data) = contact.photo_data.take() else {
+                continue;
+            };
+            let mime = match data.get(..4) {
+                Some([0x89, b'P', b'N', b'G']) => "image/png",
+                Some([0xFF, 0xD8, ..]) => "image/jpeg",
+                Some([b'G', b'I', b'F', _]) => "image/gif",
+                _ => "application/octet-stream",
+            };
+            let part = Part {
+                mime: mime.to_string(),
+                name: None,
+                data,
+            };
+            match save_attachment(&directory, &part) {
+                Ok(path) => contact.photo = Some(path),
+                Err(error) => log::warn!("cannot save a contact photo: {}", error),
+            }
+        }
+        contacts
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// Serves the phone's notification connections, forwarding the reports.
