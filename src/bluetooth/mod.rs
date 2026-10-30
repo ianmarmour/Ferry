@@ -27,7 +27,7 @@ pub mod demo;
 #[cfg(any(target_os = "macos", windows))]
 mod bridge;
 #[cfg(target_os = "linux")]
-mod linux;
+pub mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(windows)]

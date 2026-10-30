@@ -457,6 +457,14 @@ impl Store {
         handles
     }
 
+    /// The number of unread received messages in conversation `key`.
+    pub fn unread_in(&self, key: &str) -> usize {
+        self.messages
+            .iter()
+            .filter(|m| m.direction == Direction::Incoming && !m.read && m.conversation() == key)
+            .count()
+    }
+
     /// The number of unread received messages.
     pub fn unread(&self) -> usize {
         self.messages
