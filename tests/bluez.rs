@@ -312,7 +312,7 @@ async fn messages_contacts_and_notifications_through_bluez() {
         )
     })
     .await;
-    assert_eq!(14, store.lock().unwrap().messages.len());
+    assert_eq!(17, store.lock().unwrap().messages.len());
 
     // The notification record is published under Ferry's own UUID, with its channel.
     {

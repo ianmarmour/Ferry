@@ -173,6 +173,155 @@ fn strip_html(html: &str) -> String {
         .replace("&amp;", "&")
 }
 
+/// An attachment found in a message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Part {
+    /// The MIME type, such as `image/jpeg`.
+    pub mime: String,
+    /// The file name, if the message gives one.
+    pub name: Option<String>,
+    /// The decoded content.
+    pub data: Vec<u8>,
+}
+
+/// The attachments (images, video, audio and other files) of a MIME message.
+pub fn attachments(message: &BMessage) -> Vec<Part> {
+    let text = message.text();
+    let mut parts = Vec::new();
+    if has_content_type(&text) || has_headers(&text) {
+        collect_parts(&text, &mut parts);
+    }
+    parts
+}
+
+fn collect_parts(entity: &str, parts: &mut Vec<Part>) {
+    let (headers, body) = split_entity(entity);
+    let content_type = header(&headers, "content-type").unwrap_or("text/plain");
+    let media = content_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+
+    if media.starts_with("multipart/") {
+        let Some(boundary) = parameter(content_type, "boundary") else {
+            return;
+        };
+        let delimiter = format!("--{}", boundary);
+        for part in body
+            .split(delimiter.as_str())
+            .skip(1)
+            .take_while(|part| !part.starts_with("--"))
+        {
+            collect_parts(part, parts);
+        }
+        return;
+    }
+    if media.starts_with("text/") || media == "application/smil" {
+        return;
+    }
+
+    let encoding = header(&headers, "content-transfer-encoding")
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let data = match encoding.as_str() {
+        "base64" => decode_base64(body),
+        "quoted-printable" => decode_quoted_printable(body),
+        _ => body.as_bytes().to_vec(),
+    };
+    let name = parameter(content_type, "name").or_else(|| {
+        header(&headers, "content-disposition").and_then(|value| parameter(value, "filename"))
+    });
+    if !data.is_empty() {
+        parts.push(Part {
+            mime: media,
+            name,
+            data,
+        });
+    }
+}
+
+/// What kind of attachment a placeholder or MIME type stands for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// A photo or image.
+    Photo,
+    /// A video.
+    Video,
+    /// A voice message or other audio.
+    Audio,
+    /// Anything else.
+    File,
+}
+
+impl Kind {
+    /// The kind of a MIME type.
+    pub fn of_mime(mime: &str) -> Kind {
+        match mime.split('/').next().unwrap_or_default() {
+            "image" => Kind::Photo,
+            "video" => Kind::Video,
+            "audio" => Kind::Audio,
+            _ => Kind::File,
+        }
+    }
+
+    /// `Photo`, `2 Photos` and so on.
+    pub fn label(self, count: usize) -> String {
+        let (one, many) = match self {
+            Kind::Photo => ("Photo", "Photos"),
+            Kind::Video => ("Video", "Videos"),
+            Kind::Audio => ("Audio Message", "Audio Messages"),
+            Kind::File => ("Attachment", "Attachments"),
+        };
+        match count {
+            0 | 1 => one.to_string(),
+            count => format!("{} {}", count, many),
+        }
+    }
+}
+
+/// Recognizes the text phones put in place of attachments they don't transfer, such
+/// as `Attachment: 1 Photo`, `2 Images` or `[Image]`, or the object replacement
+/// characters of iMessage, and returns how many attachments of which kind it stands
+/// for.
+pub fn placeholder(text: &str) -> Option<(usize, Kind)> {
+    let text = text.trim();
+    if !text.is_empty() && text.chars().all(|c| c == '\u{FFFC}' || c.is_whitespace()) {
+        return Some((
+            text.chars().filter(|&c| c == '\u{FFFC}').count(),
+            Kind::File,
+        ));
+    }
+
+    let full = text.to_lowercase();
+    let lower = full.trim_matches(|c: char| matches!(c, '[' | ']' | '<' | '>' | '(' | ')'));
+    let bracketed = lower.len() != full.len();
+    let rest = ["attachments:", "attachment:", "attachments", "attachment"]
+        .iter()
+        .find_map(|prefix| lower.strip_prefix(prefix))
+        .map(str::trim);
+    let prefixed = rest.is_some();
+    let rest = rest.unwrap_or(lower);
+
+    let mut words = rest.split_whitespace();
+    let (count, word) = match (words.next(), words.next(), words.next()) {
+        (Some(number), Some(word), None) => (number.parse::<usize>().ok()?, word),
+        // A lone word is a placeholder only when marked as one, not a text saying "Photos".
+        (Some(word), None, None) if bracketed || prefixed => (1, word),
+        (None, None, None) if prefixed => (1, "attachment"),
+        _ => return None,
+    };
+    let kind = match word.trim_end_matches('s') {
+        "photo" | "image" | "picture" | "gif" | "sticker" => Kind::Photo,
+        "video" | "movie" => Kind::Video,
+        "audio" | "audio message" | "voice message" => Kind::Audio,
+        "attachment" | "file" | "item" => Kind::File,
+        _ => return None,
+    };
+    Some((count.max(1), kind))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,6 +363,41 @@ mod tests {
 
         let html = "Content-Type: text/html\r\n\r\n<p>Tom &amp; Jerry</p>";
         assert_eq!("Tom & Jerry", message_text(&message(MessageType::Im, html)));
+    }
+
+    #[test]
+    fn finds_attachments() {
+        let mms = "Content-Type: multipart/mixed; boundary=b1\r\n\r\n\
+            --b1\r\nContent-Type: text/plain\r\n\r\nLook\r\n\
+            --b1\r\nContent-Type: image/png; name=\"cat.png\"\r\n\
+            Content-Transfer-Encoding: base64\r\n\r\naGVsbG8=\r\n--b1--\r\n";
+        let parts = attachments(&message(MessageType::Mms, mms));
+        assert_eq!(
+            vec![Part {
+                mime: "image/png".to_string(),
+                name: Some("cat.png".to_string()),
+                data: b"hello".to_vec(),
+            }],
+            parts
+        );
+        assert!(attachments(&message(MessageType::SmsGsm, "no attachments")).is_empty());
+    }
+
+    #[test]
+    fn recognizes_placeholders() {
+        assert_eq!(Some((1, Kind::Photo)), placeholder("Attachment: 1 Photo"));
+        assert_eq!(Some((2, Kind::Photo)), placeholder("attachment 2 photos"));
+        assert_eq!(Some((3, Kind::Photo)), placeholder("3 Images"));
+        assert_eq!(Some((1, Kind::Photo)), placeholder("[Image]"));
+        assert_eq!(Some((1, Kind::Video)), placeholder("Attachment: 1 Video"));
+        assert_eq!(Some((1, Kind::File)), placeholder("Attachment"));
+        assert_eq!(Some((2, Kind::File)), placeholder("\u{FFFC}\u{FFFC}"));
+        assert_eq!(None, placeholder("Photo of the day is great"));
+        assert_eq!(None, placeholder("I took 2 photos yesterday"));
+        assert_eq!(None, placeholder(""));
+        assert_eq!(None, placeholder("Photos"));
+        assert_eq!(Some((1, Kind::Photo)), placeholder("Attachment: Photo"));
+        assert_eq!("2 Photos", Kind::Photo.label(2));
     }
 
     #[test]

@@ -68,6 +68,102 @@ const HISTORY: [(usize, i64, bool, &str); 14] = [
     (5, 60 * 24 * 2, false, "Next book: Project Hail Mary"),
 ];
 
+/// What iPhones send in place of a photo.
+const PHOTO_PLACEHOLDER: &str = "Attachment: 1 Photo";
+
+/// Draws a little sunset over the sea, as the demo's photo.
+fn sunset() -> Vec<u8> {
+    let (width, height) = (320u32, 220u32);
+    let horizon = 150.0;
+    let mix = |a: [f32; 3], b: [f32; 3], t: f32| {
+        let t = t.clamp(0.0, 1.0);
+        [
+            a[0] + (b[0] - a[0]) * t,
+            a[1] + (b[1] - a[1]) * t,
+            a[2] + (b[2] - a[2]) * t,
+        ]
+    };
+    let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            let (fx, fy) = (x as f32, y as f32);
+            let sun = ((fx - 160.0).powi(2) + (fy - 138.0).powi(2)).sqrt();
+            let color = if fy < horizon {
+                let sky = mix([43.0, 16.0, 85.0], [255.0, 126.0, 95.0], fy / horizon);
+                let sky = mix(sky, [254.0, 180.0, 123.0], (fy - 100.0) / 50.0);
+                if sun < 34.0 {
+                    [255.0, 214.0, 107.0]
+                } else {
+                    mix([255.0, 214.0, 107.0], sky, (sun - 34.0) / 30.0)
+                }
+            } else {
+                let depth = (fy - horizon) / (height as f32 - horizon);
+                let sea = mix([45.0, 70.0, 130.0], [14.0, 35.0, 71.0], depth);
+                let glint = (fx - 160.0).abs() < 40.0 - depth * 30.0 && (y / 4) % 2 == 0;
+                if glint {
+                    mix(sea, [255.0, 190.0, 120.0], 0.6)
+                } else {
+                    sea
+                }
+            };
+            pixels.extend(color.map(|channel| channel as u8));
+            pixels.push(255);
+        }
+    }
+
+    let mut png = Vec::new();
+    let mut encoder = png::Encoder::new(&mut png, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().expect("in memory");
+    writer.write_image_data(&pixels).expect("in memory");
+    drop(writer);
+    png
+}
+
+fn base64(data: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for (i, chunk) in data.chunks(3).enumerate() {
+        if i > 0 && i % 19 == 0 {
+            out.push_str("\r\n");
+        }
+        let bytes = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let value = u32::from(bytes[0]) << 16 | u32::from(bytes[1]) << 8 | u32::from(bytes[2]);
+        for position in 0..4 {
+            if position <= chunk.len() {
+                out.push(ALPHABET[(value >> (18 - 6 * position) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+/// The MMS content of a photo message, with the picture if `attachment`.
+fn photo_message(caption: &str, png: &[u8], attachment: bool) -> String {
+    let mut body = format!(
+        "Content-Type: multipart/related; boundary=\"ferry\"\r\n\r\n\
+         --ferry\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{}\r\n",
+        caption
+    );
+    if attachment {
+        body.push_str(
+            "--ferry\r\nContent-Type: image/png; name=\"sunset.png\"\r\n\
+             Content-Transfer-Encoding: base64\r\n\r\n",
+        );
+        body.push_str(&base64(png));
+        body.push_str("\r\n");
+    }
+    body.push_str("--ferry--\r\n");
+    body
+}
+
 const REPLIES: [&str; 6] = [
     "Sounds good!",
     "Haha 😂",
@@ -81,6 +177,8 @@ struct Stored {
     folder: String,
     entry: MessageEntry,
     message: BMessage,
+    /// The caption and PNG of a photo message, sent as MMS.
+    photo: Option<(String, Vec<u8>)>,
 }
 
 struct State {
@@ -139,6 +237,7 @@ impl State {
             folder: folder.to_string(),
             entry,
             message,
+            photo: None,
         });
         handle
     }
@@ -199,6 +298,39 @@ impl DemoPhone {
                 outgoing || minutes_ago > 30,
             );
         }
+
+        // Photos: one sent as MMS with the picture, and the placeholders iPhones
+        // send in place of pictures they don't transfer.
+        state.add(
+            "telecom/msg/inbox",
+            4,
+            false,
+            2,
+            "Sunset from the ferry 🌅",
+            false,
+        );
+        let stored = state.messages.last_mut().expect("just added");
+        let png = sunset();
+        stored.entry.message_type = Some(MessageType::Mms);
+        stored.entry.attachment_size = Some(png.len() as u64);
+        stored.message.message_type = MessageType::Mms;
+        stored.photo = Some(("Sunset from the ferry 🌅".to_string(), png));
+        state.add(
+            "telecom/msg/inbox",
+            2,
+            false,
+            60 * 24 * 3 - 7,
+            PHOTO_PLACEHOLDER,
+            true,
+        );
+        state.add(
+            "telecom/msg/sent",
+            3,
+            true,
+            60 * 24 * 8 - 25,
+            PHOTO_PLACEHOLDER,
+            true,
+        );
 
         DemoPhone {
             state: Arc::new(Mutex::new(state)),
@@ -327,15 +459,20 @@ impl MessageStore for Mas {
     async fn get_message(
         &mut self,
         handle: MessageHandle,
-        _params: &GetMessageParams,
+        params: &GetMessageParams,
     ) -> Result<BMessage, ResponseCode> {
         let state = self.state.lock().unwrap();
-        state
+        let stored = state
             .messages
             .iter()
             .find(|stored| stored.entry.handle == handle)
-            .map(|stored| stored.message.clone())
-            .ok_or(ResponseCode::NotFound)
+            .ok_or(ResponseCode::NotFound)?;
+        let mut message = stored.message.clone();
+        if let Some((caption, png)) = &stored.photo {
+            *message.body_mut() =
+                BMessageBody::from_text(photo_message(caption, png, params.attachment));
+        }
+        Ok(message)
     }
 
     async fn set_message_status(
@@ -543,5 +680,37 @@ impl Drop for Unregister {
         let mut state = self.0.lock().unwrap();
         state.listener = None;
         state.reports = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encodes_base64() {
+        assert_eq!("aGVsbG8=", base64(b"hello"));
+        assert_eq!("aGk=", base64(b"hi"));
+        assert_eq!("YWJj", base64(b"abc"));
+    }
+
+    #[test]
+    fn photo_messages_carry_the_picture_when_asked() {
+        let png = sunset();
+        assert!(png.starts_with(b"\x89PNG"));
+        let message = BMessage::new(
+            MessageType::Mms,
+            BMessageBody::from_text(photo_message("Hi", &png, true)),
+        );
+        let parts = crate::text::attachments(&message);
+        assert_eq!(1, parts.len());
+        assert_eq!(png, parts[0].data);
+        assert_eq!("Hi", crate::text::message_text(&message));
+
+        let message = BMessage::new(
+            MessageType::Mms,
+            BMessageBody::from_text(photo_message("Hi", &png, false)),
+        );
+        assert!(crate::text::attachments(&message).is_empty());
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "ferry"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Ian Armour <ianmarmour@gmail.com>"]
 description = "A cross-platform desktop client for texting through your iPhone over Bluetooth MAP"
 edition = "2021"
@@ -27,6 +27,7 @@ env_logger = "0.11"
 log = "0.4"
 map = { git = "https://github.com/ianmarmour/map", branch = "main", features = ["tokio"] }
 notify-rust = { version = "4", default-features = false, features = ["z-with-tokio"] }
+image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 png = "0.18"
 obex = { git = "https://github.com/ianmarmour/obex", branch = "main", features = ["tokio"] }
 serde = { version = "1", features = ["derive"] }

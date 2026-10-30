@@ -29,6 +29,7 @@ use crate::session::{cache_path, Command, Event, Outbox, Session, State, Timing}
 
 pub mod icon;
 mod instance;
+mod photos;
 mod sidebar;
 pub mod theme;
 mod thread;
@@ -174,6 +175,7 @@ pub struct FerryApp {
     title: String,
     conversations: (u64, Vec<Conversation>),
     thread: Option<(u64, String, Vec<Message>)>,
+    photos: photos::Photos,
 }
 
 /// Where messages are cached.
@@ -260,6 +262,7 @@ impl FerryApp {
             title: String::new(),
             conversations: (u64::MAX, Vec::new()),
             thread: None,
+            photos: photos::Photos::default(),
         }
     }
 
@@ -460,7 +463,7 @@ impl FerryApp {
             notified = true;
             if self.settings.notifications {
                 let title = store.display_name(&message.address, message.name.as_deref());
-                self.notifier.show(&title, &message.text);
+                self.notifier.show(&title, &message.summary());
             }
         }
 

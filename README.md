@@ -38,6 +38,10 @@ iPhones only expose recent messages over MAP, so Ferry keeps everything it has s
 
 New messages raise a native desktop notification: the freedesktop notification service over D-Bus on Linux, toasts on Windows and Notification Center on macOS.
 
+Closing the window keeps Ferry running in the system tray, still connected and still notifying; the tray icon opens it again, shows a red dot while there are unread messages, and quits Ferry. Ctrl+Q (⌘Q) quits from the window. Launching Ferry while it runs shows its window.
+
+Photos sent as MMS appear inline; click one to open it. iPhones usually don't transfer attachments over MAP and send text such as "Attachment: 1 Photo" in their place, which Ferry shows as a photo card. Run with `RUST_LOG=ferry=debug` to see what your phone sends for a message with attachments.
+
 ## Getting Started
 
 ### 1. Set up the iPhone
@@ -59,9 +63,13 @@ cargo run --release -- --demo
 
 Set `RUST_LOG=ferry=debug` to see what's happening on the Bluetooth link.
 
+On Linux, Ferry installs a desktop entry and its icon for your user the first time it runs, as Wayland takes an application's icon from its desktop entry. `ferry --install` does this explicitly and `ferry --uninstall` removes them.
+
 ### Platform notes
 
 **Linux.** Needs BlueZ 5 (`bluetoothd`). Ferry opens its own Bluetooth sockets: it finds the phone's services with an SDP query and connects over RFCOMM, as BlueZ's `obexd` MAP client does, and uses BlueZ over D-Bus only to list paired devices and publish its notification server record. It doesn't register BlueZ profiles for MAP or PBAP, so it works alongside `obexd`, which most desktops run and which claims those profiles. Nothing is linked at build time: D-Bus is spoken in pure Rust (zbus), and X11, Wayland and OpenGL are loaded at runtime. `obexd` also publishes a notification server, and the phone may deliver to it instead of Ferry. If new messages only arrive at the 20 second check, stop it while using Ferry with `systemctl --user stop obex`, or turn it off for good with `systemctl --user mask obex`.
+
+The tray icon is a StatusNotifierItem: KDE, Xfce and Cinnamon show it, and GNOME does with the AppIndicator extension (on Fedora, `sudo dnf install gnome-shell-extension-appindicator`, then enable it in Extensions). Without a tray, closing the window quits Ferry.
 
 **Windows.** Windows 10 or later. The Phone Link app also talks MAP to iPhones; if it's connected to the same phone, quit it first. Notifications show up as coming from Windows PowerShell unless Ferry is installed with its own app identity.
 
@@ -78,6 +86,7 @@ cargo test
 ```
 
 * `tests/session.rs` drives the session worker against the simulated iPhone, which runs the real MAP and PBAP servers from the `map` and `obex` crates over in-memory streams. It covers syncing, contacts, sending, delivery reports, notifications, read status and reconnection.
+* `tests/tray.rs` (Linux) registers the tray icon with a fake StatusNotifierWatcher and clicks it.
 * `tests/bluez.rs` (Linux) runs the BlueZ backend against a fake BlueZ on a private D-Bus, with test sockets that answer SDP searches and lead to the simulated iPhone. It covers device listing, publishing the notification record while the MAP UUIDs are taken, and the whole session over the backend. It needs `dbus-daemon`. The kernel socket calls themselves need Bluetooth hardware.
 
 The Windows and macOS backends are type-checked by CI on their platforms.
@@ -90,12 +99,14 @@ The Windows and macOS backends are type-checked by CI on their platforms.
 | `src/contacts.rs` | vCard parsing and address matching |
 | `src/pbap.rs` | a minimal PBAP client on `obex` |
 | `src/text.rs` | text extraction from MIME message bodies |
-| `src/ui/` | the window |
+| `src/ui/` | the window, tray icon and app icon |
+| `src/desktop.rs` | the Linux desktop entry |
+| `assets/` | the icon, `ferry.svg`, and its renderings |
 
 ## Limitations
 
 * Conversations are one-to-one; group messages show up in the sender's conversation.
-* Attachments aren't downloaded; MMS show their text.
+* Only photos are shown inline; other attachments open in the system's viewer. HEIC photos aren't decoded.
 * What an iPhone allows over MAP depends on its iOS version. Ferry reports what the phone refuses, for example if it won't accept messages to send.
 
 ## Minimum Supported Rust Version

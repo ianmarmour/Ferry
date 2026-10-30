@@ -61,6 +61,7 @@ impl FerryApp {
 
         let mut retry = None;
         let scroll = std::mem::take(&mut self.scroll_to_bottom);
+        let photos = &mut self.photos;
         egui::CentralPanel::default()
             .frame(Frame::new().fill(palette.window))
             .show(ui, |ui| {
@@ -98,13 +99,24 @@ impl FerryApp {
                         let tail = next.is_none_or(|n| {
                             n.direction != message.direction || n.time - message.time > GAP
                         });
-                        let response = bubble(ui, message, tail, palette);
-                        response.context_menu(|ui| {
-                            if ui.button("Copy").clicked() {
-                                ui.ctx().copy_text(message.text.clone());
-                                ui.close();
+                        for (n, attachment) in message.attachments.iter().enumerate() {
+                            if n > 0 {
+                                ui.add_space(2.0);
                             }
-                        });
+                            super::photos::attachment(ui, photos, message, attachment, palette);
+                        }
+                        if !message.text.is_empty() || message.attachments.is_empty() {
+                            if !message.attachments.is_empty() {
+                                ui.add_space(2.0);
+                            }
+                            let response = bubble(ui, message, tail, palette);
+                            response.context_menu(|ui| {
+                                if ui.button("Copy").clicked() {
+                                    ui.ctx().copy_text(message.text.clone());
+                                    ui.close();
+                                }
+                            });
+                        }
 
                         if let Some(clicked) =
                             caption(ui, message, Some(i) == last_outgoing, palette)

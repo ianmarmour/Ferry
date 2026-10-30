@@ -33,9 +33,9 @@ use tokio::task::JoinHandle;
 use tokio::time::{timeout, Instant};
 
 use crate::bluetooth::{AsyncStream, Backend, Device, Service};
-use crate::model::{Direction, Status, Store, Synced};
+use crate::model::{Attachment, Direction, Status, Store, Synced};
 use crate::pbap::PbapClient;
-use crate::text::message_text;
+use crate::text::{self, message_text, Part};
 
 /// What the UI asks the session to do.
 #[derive(Debug, Clone, PartialEq)]
@@ -192,6 +192,7 @@ impl Session {
         outbox: Outbox,
     ) -> Session {
         let (commands, receiver) = mpsc::unbounded_channel();
+        let cache_dir_for_attachments = cache_dir.clone();
         let worker = Worker {
             backend,
             store,
@@ -200,6 +201,7 @@ impl Session {
             outbox,
             commands: receiver,
             pending: VecDeque::new(),
+            attachments_dir: attachments_dir(cache_dir_for_attachments.as_deref()),
         };
         tokio::spawn(worker.run());
         Session { commands }
@@ -208,6 +210,15 @@ impl Session {
     /// Sends a command to the worker.
     pub fn send(&self, command: Command) {
         let _ = self.commands.send(command);
+    }
+}
+
+/// Where attachments are kept: next to the message caches, or in the temporary
+/// directory when nothing is kept on disk.
+fn attachments_dir(cache_dir: Option<&std::path::Path>) -> PathBuf {
+    match cache_dir {
+        Some(cache_dir) => cache_dir.join("attachments"),
+        None => std::env::temp_dir().join("ferry-attachments"),
     }
 }
 
@@ -339,6 +350,8 @@ struct Worker {
     commands: mpsc::UnboundedReceiver<Command>,
     /// Commands received while connecting, handled once connected.
     pending: VecDeque<Command>,
+    /// Where downloaded attachments are kept.
+    attachments_dir: PathBuf,
 }
 
 impl Worker {
@@ -893,12 +906,19 @@ impl Worker {
                 if self.with_store(|store| store.by_handle(entry.handle.0).is_some()) {
                     return Ok(());
                 }
-                let message = match self
-                    .op(conn
-                        .mas
-                        .get_message(entry.handle, &GetMessageParams::default()))
-                    .await
-                {
+                // Ask for attachments when the listing suggests there are any; some
+                // phones refuse that, so ask again without.
+                let hinted = has_attachments(&entry);
+                let mut params = GetMessageParams {
+                    attachment: hinted,
+                    ..GetMessageParams::default()
+                };
+                let mut result = self.op(conn.mas.get_message(entry.handle, &params)).await;
+                if hinted && matches!(result, Err(Failure::Refused(_))) {
+                    params.attachment = false;
+                    result = self.op(conn.mas.get_message(entry.handle, &params)).await;
+                }
+                let message = match result {
                     Ok(message) => Some(message),
                     Err(Failure::Refused(error)) => {
                         log::info!("message {} refused: {}", entry.handle, error);
@@ -906,11 +926,17 @@ impl Worker {
                     }
                     Err(Failure::Link(error)) => return Err(error),
                 };
-                if message.is_none() && entry.subject.is_none() {
+                if hinted {
+                    log_attachments(&entry, message.as_ref(), params.attachment);
+                }
+
+                let parts = message.as_ref().map(text::attachments).unwrap_or_default();
+                let attachments = self.save_attachments(parts).await;
+                if message.is_none() && entry.subject.is_none() && !hinted {
                     return Ok(());
                 }
 
-                let synced = synced(&folder, &entry, message.as_ref());
+                let synced = synced(&folder, &entry, message.as_ref(), attachments);
                 let announce =
                     conn.announce && synced.direction == Direction::Incoming && !synced.read;
                 let added = self.with_store(|store| store.merge(synced));
@@ -921,6 +947,31 @@ impl Worker {
             }
         }
         Ok(())
+    }
+
+    /// Writes downloaded attachments to disk.
+    async fn save_attachments(&self, parts: Vec<Part>) -> Vec<Attachment> {
+        if parts.is_empty() {
+            return Vec::new();
+        }
+        let directory = self.attachments_dir.clone();
+        tokio::task::spawn_blocking(move || {
+            parts
+                .into_iter()
+                .map(|part| {
+                    let file = save_attachment(&directory, &part)
+                        .map_err(|error| log::warn!("cannot save an attachment: {}", error))
+                        .ok();
+                    Attachment {
+                        kind: text::Kind::of_mime(&part.mime).into(),
+                        mime: Some(part.mime),
+                        file,
+                    }
+                })
+                .collect()
+        })
+        .await
+        .unwrap_or_default()
     }
 
     /// Marks messages that were being sent when the connection dropped as failed.
@@ -1075,7 +1126,12 @@ fn refusal(error: &map::Error) -> String {
 }
 
 /// Converts a listing entry and its downloaded message.
-fn synced(folder: &str, entry: &MessageEntry, message: Option<&BMessage>) -> Synced {
+fn synced(
+    folder: &str,
+    entry: &MessageEntry,
+    message: Option<&BMessage>,
+    mut attachments: Vec<Attachment>,
+) -> Synced {
     let direction = match entry.direction {
         Some(ListingDirection::Incoming) => Direction::Incoming,
         Some(_) => Direction::Outgoing,
@@ -1111,10 +1167,38 @@ fn synced(folder: &str, entry: &MessageEntry, message: Option<&BMessage>) -> Syn
     let address = address.or_else(|| card.and_then(card_address));
     let name = name.or_else(|| card.and_then(card_name));
 
-    let text = message
+    let mut text = message
         .map(message_text)
         .or_else(|| entry.subject.clone())
         .unwrap_or_default();
+
+    // Phones that don't transfer attachments put text like "Attachment: 1 Photo" in
+    // their place; show them as attachments instead.
+    let listed_mime = entry.attachment_mime_types.first().cloned();
+    if let Some((count, kind)) = text::placeholder(&text) {
+        if attachments.is_empty() {
+            let kind = listed_mime.as_deref().map_or(kind, text::Kind::of_mime);
+            attachments = (0..count.min(10))
+                .map(|_| Attachment {
+                    kind: kind.into(),
+                    mime: listed_mime.clone(),
+                    file: None,
+                })
+                .collect();
+        }
+        text.clear();
+    }
+    if attachments.is_empty() && entry.attachment_size.is_some_and(|size| size > 0) {
+        attachments.push(Attachment {
+            kind: listed_mime
+                .as_deref()
+                .map_or(text::Kind::File, text::Kind::of_mime)
+                .into(),
+            mime: listed_mime,
+            file: None,
+        });
+    }
+
     let read = entry
         .read
         .or(message.map(|message| message.read))
@@ -1132,7 +1216,75 @@ fn synced(folder: &str, entry: &MessageEntry, message: Option<&BMessage>) -> Syn
             .and_then(unix_time)
             .unwrap_or_else(|| Local::now().timestamp()),
         read: read || direction == Direction::Outgoing,
+        attachments,
     }
+}
+
+/// Whether a listed message seems to have attachments.
+fn has_attachments(entry: &MessageEntry) -> bool {
+    entry.attachment_size.is_some_and(|size| size > 0)
+        || !entry.attachment_mime_types.is_empty()
+        || entry.message_type == Some(MessageType::Mms)
+        || entry
+            .subject
+            .as_deref()
+            .is_some_and(|subject| text::placeholder(subject).is_some())
+}
+
+/// Logs what the phone sent for a message with attachments, to see what it supports.
+fn log_attachments(entry: &MessageEntry, message: Option<&BMessage>, requested: bool) {
+    let body = message.map(|message| {
+        let text = message.text();
+        let preview: String = text.chars().take(400).collect();
+        (message.message_type, text.len(), preview)
+    });
+    log::debug!(
+        "message {} may have attachments: type {:?}, size {:?}, attachment size {:?}, \
+         attachment types {:?}, subject {:?}; requested with attachments: {}; body {:?}",
+        entry.handle,
+        entry.message_type,
+        entry.size,
+        entry.attachment_size,
+        entry.attachment_mime_types,
+        entry.subject,
+        requested,
+        body,
+    );
+}
+
+/// Saves an attachment under a name derived from its content.
+fn save_attachment(directory: &std::path::Path, part: &Part) -> std::io::Result<PathBuf> {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    part.data.hash(&mut hasher);
+    let extension = match part.mime.as_str() {
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/heic" | "image/heif" => "heic",
+        "video/mp4" => "mp4",
+        "video/quicktime" => "mov",
+        "video/3gpp" => "3gp",
+        "audio/amr" => "amr",
+        "audio/mp4" | "audio/x-m4a" => "m4a",
+        "audio/mpeg" => "mp3",
+        _ => part
+            .name
+            .as_deref()
+            .and_then(|name| name.rsplit_once('.'))
+            .map(|(_, extension)| extension)
+            .filter(|extension| extension.chars().all(|c| c.is_ascii_alphanumeric()))
+            .unwrap_or("bin"),
+    };
+
+    std::fs::create_dir_all(directory)?;
+    let path = directory.join(format!("{:016x}.{}", hasher.finish(), extension));
+    if !path.exists() {
+        std::fs::write(&path, &part.data)?;
+    }
+    Ok(path)
 }
 
 /// `Doe;John;;;` to `John Doe`.
@@ -1175,6 +1327,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn placeholders_become_attachments() {
+        let entry = MessageEntry {
+            sender_addressing: Some("+15550001".to_string()),
+            subject: Some("Attachment: 2 Photos".to_string()),
+            ..MessageEntry::new(MessageHandle(9))
+        };
+        assert!(has_attachments(&entry));
+        let synced = synced("inbox", &entry, None, Vec::new());
+        assert_eq!("", synced.text);
+        assert_eq!(2, synced.attachments.len());
+        assert_eq!(
+            crate::model::AttachmentKind::Photo,
+            synced.attachments[0].kind
+        );
+
+        let sized = MessageEntry {
+            attachment_size: Some(1200),
+            attachment_mime_types: vec!["video/mp4".to_string()],
+            subject: Some("Look".to_string()),
+            ..MessageEntry::new(MessageHandle(10))
+        };
+        let synced = super::synced("inbox", &sized, None, Vec::new());
+        assert_eq!("Look", synced.text);
+        assert_eq!(
+            crate::model::AttachmentKind::Video,
+            synced.attachments[0].kind
+        );
+    }
+
+    #[test]
     fn converts_timestamps() {
         assert_eq!(Some(951_825_600), unix_time("20000229T120000Z"));
         assert_eq!(Some(951_825_600), unix_time("20000229T080000-0400"));
@@ -1193,7 +1375,7 @@ mod tests {
         let message = BMessage::new(MessageType::SmsGsm, BMessageBody::from_text("Hi"))
             .with_originator(VCard::telephone("+15550001").with_name("Doe;Jane"));
 
-        let synced = synced("inbox", &entry, Some(&message));
+        let synced = synced("inbox", &entry, Some(&message), Vec::new());
         assert_eq!(Direction::Incoming, synced.direction);
         assert_eq!("+15550001", synced.address);
         assert_eq!(Some("Jane Doe".to_string()), synced.name);
@@ -1205,7 +1387,7 @@ mod tests {
             subject: Some("Preview".to_string()),
             ..MessageEntry::new(MessageHandle(6))
         };
-        let synced = super::synced("sent", &sent, None);
+        let synced = super::synced("sent", &sent, None, Vec::new());
         assert_eq!(Direction::Outgoing, synced.direction);
         assert_eq!("+15550002", synced.address);
         assert_eq!("Preview", synced.text);

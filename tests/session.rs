@@ -7,7 +7,7 @@ use std::time::Duration;
 use ferry::bluetooth::demo::DemoPhone;
 use ferry::bluetooth::Backend;
 use ferry::contacts::conversation_key;
-use ferry::model::{Direction, Status, Store};
+use ferry::model::{AttachmentKind, Direction, Status, Store};
 use ferry::session::{Command, Event, Outbox, Session, State, Timing};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
@@ -98,7 +98,7 @@ async fn downloads_messages_and_contacts() {
         .await;
 
     let store = harness.store.lock().unwrap();
-    assert_eq!(14, store.messages.len());
+    assert_eq!(17, store.messages.len());
     let conversations = store.conversations();
     assert_eq!(6, conversations.len());
 
@@ -114,6 +114,33 @@ async fn downloads_messages_and_contacts() {
     assert_eq!(3, thread.len());
     assert_eq!(Direction::Outgoing, thread[1].direction);
     assert_eq!("Yes! 10am at the farmers market", thread[1].text);
+
+    // An MMS photo is downloaded with its picture.
+    let priya = store.thread(&conversation_key("+14155550105"));
+    let photo = priya.last().unwrap();
+    assert_eq!("Sunset from the ferry 🌅", photo.text);
+    assert_eq!(1, photo.attachments.len());
+    assert_eq!(AttachmentKind::Photo, photo.attachments[0].kind);
+    let file = photo.attachments[0].file.as_ref().expect("downloaded");
+    assert!(std::fs::read(file).unwrap().starts_with(b"\x89PNG"));
+
+    // Placeholders iPhones send instead of photos become photo attachments, sent or
+    // received.
+    for number in ["+14155550103", "+14155550104"] {
+        let thread = store.thread(&conversation_key(number));
+        let placeholder = thread
+            .iter()
+            .find(|m| !m.attachments.is_empty())
+            .expect("a photo message");
+        assert_eq!("", placeholder.text);
+        assert_eq!(None, placeholder.attachments[0].file);
+        assert_eq!("Photo", placeholder.summary());
+    }
+    let sam = conversations
+        .iter()
+        .find(|c| c.key == conversation_key("+14155550104"))
+        .unwrap();
+    assert_eq!("Photo", sam.preview);
 }
 
 #[tokio::test(flavor = "multi_thread")]

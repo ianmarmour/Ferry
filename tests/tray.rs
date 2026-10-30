@@ -117,4 +117,5 @@ fn registers_activates_and_shows_unread() {
 
     drop(tray);
     let _ = daemon.kill();
+    let _ = daemon.wait();
 }
