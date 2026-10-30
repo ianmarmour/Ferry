@@ -1,30 +1,35 @@
 //! The BlueZ backend against a fake BlueZ on a private D-Bus.
 //!
 //! The fake implements the parts of BlueZ Ferry uses: the object manager with an
-//! adapter and a paired phone, `ProfileManager1`, and `Device1.ConnectProfile`, which
-//! hands Ferry's `Profile1` object one end of a Unix socket pair, as BlueZ does with
-//! RFCOMM sockets. The other end leads to the simulated iPhone, which connects back
-//! for notifications through the registered notification server profile.
+//! adapter and a paired phone, and `ProfileManager1`, where Ferry publishes its
+//! notification server record. Sockets come from [`TestSockets`], which answers SDP
+//! searches and connects "RFCOMM channels" to the simulated iPhone over Unix sockets.
+//! The phone connects back to Ferry's listening socket for notifications.
 #![cfg(target_os = "linux")]
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
+use std::io::{self, BufRead, BufReader};
+use std::os::fd::OwnedFd;
+use std::path::PathBuf;
 use std::process::{Child, Command as Process, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use ferry::bluetooth::demo::DemoPhone;
-use ferry::bluetooth::linux::BlueZ;
-use ferry::bluetooth::{uuid128, Backend, Link, Service};
+use ferry::bluetooth::linux::{BlueZ, Sockets, MNS_RECORD_UUID};
+use ferry::bluetooth::{sdp, Backend, Link, Service};
 use ferry::model::{Status, Store};
 use ferry::session::{Command, Event, Outbox, Session, State, Timing};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
-use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
+use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 use zbus::{interface, Connection};
 
 const PHONE: &str = "/org/bluez/hci0/dev_00_11_22_33_44_55";
-const MNS: u16 = 0x1133;
+const ADDRESS: &str = "00:11:22:33:44:55";
+const MAS_CHANNEL: u8 = 2;
+const PSE_CHANNEL: u8 = 19;
+const MNS_CHANNEL: u8 = 9;
 
 /// A private bus, stopped when dropped.
 struct Bus {
@@ -56,96 +61,128 @@ impl Drop for Bus {
     }
 }
 
-#[derive(Clone, Debug)]
-struct Registered {
-    owner: String,
-    path: OwnedObjectPath,
-    uuid: String,
-    role: String,
-}
-
-#[derive(Clone)]
-struct Fake {
-    phone: DemoPhone,
-    profiles: Arc<Mutex<Vec<Registered>>>,
-}
-
 /// Connects `link` (the phone's side) to a new socket and returns Ferry's end.
-fn socket_for(mut link: Link) -> std::os::fd::OwnedFd {
+fn socket_for(runtime: &tokio::runtime::Handle, mut link: Link) -> OwnedFd {
     let (ours, theirs) = std::os::unix::net::UnixStream::pair().unwrap();
     theirs.set_nonblocking(true).unwrap();
-    let mut theirs = UnixStream::from_std(theirs).unwrap();
-    tokio::spawn(async move {
+    runtime.spawn(async move {
+        let mut theirs = UnixStream::from_std(theirs).unwrap();
         let _ = tokio::io::copy_bidirectional(&mut theirs, &mut link.stream).await;
     });
     ours.into()
 }
 
-async fn new_connection(
-    connection: &Connection,
-    profile: &Registered,
-    fd: std::os::fd::OwnedFd,
-) -> zbus::fdo::Result<()> {
-    connection
-        .call_method(
-            Some(profile.owner.as_str()),
-            profile.path.as_str(),
-            Some("org.bluez.Profile1"),
-            "NewConnection",
-            &(
-                OwnedObjectPath::try_from(PHONE).unwrap(),
-                zbus::zvariant::OwnedFd::from(fd),
-                HashMap::<String, Value>::new(),
-            ),
-        )
-        .await
-        .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
-    Ok(())
+/// Sockets leading to the simulated iPhone.
+struct TestSockets {
+    phone: DemoPhone,
+    runtime: tokio::runtime::Handle,
+    directory: PathBuf,
+    connections: Mutex<Vec<u8>>,
 }
 
-struct ProfileManager(Fake);
+impl Sockets for TestSockets {
+    fn search(&self, address: &str, uuid: u16) -> io::Result<Vec<sdp::Record>> {
+        assert_eq!(ADDRESS, address);
+        let lists = match uuid {
+            0x1132 => sdp::sequence(&[
+                sdp::rfcomm_service(0x1132, 7, Some(0x01)),
+                sdp::rfcomm_service(0x1132, MAS_CHANNEL, Some(0x0E)),
+            ]),
+            0x112F => sdp::sequence(&[sdp::rfcomm_service(0x112F, PSE_CHANNEL, None)]),
+            _ => sdp::sequence(&[]),
+        };
+        Ok(sdp::records(&lists).unwrap())
+    }
+
+    fn connect(&self, address: &str, channel: u8) -> io::Result<OwnedFd> {
+        assert_eq!(ADDRESS, address);
+        self.connections.lock().unwrap().push(channel);
+        let service = match channel {
+            MAS_CHANNEL => Service::MessageAccess,
+            PSE_CHANNEL => Service::PhoneBook,
+            _ => return Err(io::Error::from_raw_os_error(libc::ECONNREFUSED)),
+        };
+        let phone = self.phone.clone();
+        let link = self.runtime.block_on(async move {
+            let devices = phone.devices().await.unwrap();
+            phone.connect(&devices[0], service).await.unwrap()
+        });
+        Ok(socket_for(&self.runtime, link))
+    }
+
+    fn listen(&self) -> io::Result<(OwnedFd, u8)> {
+        let path = self.directory.join(format!("mns-{}", rand_suffix()));
+        let listener = std::os::unix::net::UnixListener::bind(&path)?;
+
+        // The phone connects to the listening socket whenever it has news.
+        let phone = self.phone.clone();
+        let mut notifications = self.runtime.block_on(phone.listen()).unwrap();
+        self.runtime.spawn(async move {
+            while let Some(mut link) = notifications.accept().await {
+                let mut socket = UnixStream::connect(&path).await.unwrap();
+                tokio::spawn(async move {
+                    let _ = tokio::io::copy_bidirectional(&mut socket, &mut link.stream).await;
+                });
+            }
+        });
+        Ok((listener.into(), MNS_CHANNEL))
+    }
+}
+
+fn rand_suffix() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
+}
+
+#[derive(Clone, Debug)]
+struct Registered {
+    path: OwnedObjectPath,
+    uuid: String,
+    role: String,
+    record: String,
+}
+
+#[derive(Clone, Default)]
+struct Profiles(Arc<Mutex<Vec<Registered>>>);
+
+struct ProfileManager(Profiles);
 
 #[interface(name = "org.bluez.ProfileManager1")]
 impl ProfileManager {
     async fn register_profile(
         &self,
-        #[zbus(header)] header: zbus::message::Header<'_>,
-        #[zbus(connection)] connection: &Connection,
         path: OwnedObjectPath,
         uuid: String,
         options: HashMap<String, OwnedValue>,
     ) -> zbus::fdo::Result<()> {
-        let role = options
-            .get("Role")
-            .and_then(|role| role.downcast_ref::<&str>().ok())
-            .unwrap_or("")
-            .to_string();
-        let profile = Registered {
-            owner: header.sender().unwrap().to_string(),
-            path,
-            uuid: uuid.clone(),
-            role,
+        let text = |name: &str| {
+            options
+                .get(name)
+                .and_then(|value| value.downcast_ref::<&str>().ok())
+                .unwrap_or("")
+                .to_string()
         };
-        self.0.profiles.lock().unwrap().push(profile.clone());
-
-        // The phone connects to the notification server whenever it has news.
-        if uuid == uuid128(MNS) {
-            let mut listener = self.0.phone.listen().await.unwrap();
-            let connection = connection.clone();
-            tokio::spawn(async move {
-                while let Some(link) = listener.accept().await {
-                    new_connection(&connection, &profile, socket_for(link))
-                        .await
-                        .unwrap();
-                }
-            });
+        let mut profiles = self.0 .0.lock().unwrap();
+        // Like BlueZ, refuse a UUID that is already registered, as obexd's would be.
+        if profiles.iter().any(|profile| profile.uuid == uuid) || uuid.starts_with("00001132") {
+            return Err(zbus::fdo::Error::Failed(
+                "UUID already registered".to_string(),
+            ));
         }
+        profiles.push(Registered {
+            path,
+            uuid,
+            role: text("Role"),
+            record: text("ServiceRecord"),
+        });
         Ok(())
     }
 
     async fn unregister_profile(&self, path: OwnedObjectPath) {
         self.0
-            .profiles
+             .0
             .lock()
             .unwrap()
             .retain(|profile| profile.path != path);
@@ -162,45 +199,13 @@ impl Adapter {
     }
 }
 
-struct Device(Fake);
+struct Device;
 
 #[interface(name = "org.bluez.Device1")]
 impl Device {
-    async fn connect_profile(
-        &self,
-        #[zbus(connection)] connection: &Connection,
-        uuid: String,
-    ) -> zbus::fdo::Result<()> {
-        // BlueZ connects the client profile whose remote service is `uuid`.
-        let (service, registered_uuid) = match uuid.as_str() {
-            u if u == Service::MessageAccess.uuid() => (Service::MessageAccess, uuid.clone()),
-            u if u == Service::PhoneBook.uuid() => (Service::PhoneBook, uuid128(0x112E)),
-            _ => {
-                return Err(zbus::fdo::Error::Failed(
-                    "br-connection-profile-unavailable".to_string(),
-                ))
-            }
-        };
-        let profile = self
-            .0
-            .profiles
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|profile| profile.uuid == registered_uuid && profile.role == "client")
-            .cloned()
-            .ok_or_else(|| zbus::fdo::Error::Failed("no profile".to_string()))?;
-
-        let devices = self.0.phone.devices().await.unwrap();
-        let link = self.0.phone.connect(&devices[0], service).await.unwrap();
-        new_connection(connection, &profile, socket_for(link)).await
-    }
-
-    async fn disconnect_profile(&self, _uuid: String) {}
-
     #[zbus(property)]
     fn address(&self) -> String {
-        "00:11:22:33:44:55".to_string()
+        ADDRESS.to_string()
     }
 
     #[zbus(property)]
@@ -224,23 +229,22 @@ impl Device {
     }
 }
 
-async fn fake_bluez(address: &str, fake: Fake) -> Connection {
-    let connection = zbus::connection::Builder::address(address)
+async fn fake_bluez(address: &str, profiles: Profiles) -> Connection {
+    zbus::connection::Builder::address(address)
         .unwrap()
         .name("org.bluez")
         .unwrap()
         .serve_at("/", zbus::fdo::ObjectManager)
         .unwrap()
-        .serve_at("/org/bluez", ProfileManager(fake.clone()))
+        .serve_at("/org/bluez", ProfileManager(profiles))
         .unwrap()
         .serve_at("/org/bluez/hci0", Adapter)
         .unwrap()
-        .serve_at(PHONE, Device(fake))
+        .serve_at(PHONE, Device)
         .unwrap()
         .build()
         .await
-        .unwrap();
-    connection
+        .unwrap()
 }
 
 async fn until(
@@ -267,17 +271,23 @@ async fn until(
 #[tokio::test(flavor = "multi_thread")]
 async fn messages_contacts_and_notifications_through_bluez() {
     let bus = Bus::start();
-    let fake = Fake {
-        phone: DemoPhone::new().with_reply_delay(Duration::from_millis(200)),
-        profiles: Arc::new(Mutex::new(Vec::new())),
-    };
-    let _bluez = fake_bluez(&bus.address, fake.clone()).await;
+    let profiles = Profiles::default();
+    let _bluez = fake_bluez(&bus.address, profiles.clone()).await;
 
-    let backend = Arc::new(BlueZ::on_bus(&bus.address));
+    let directory = std::env::temp_dir().join(format!("ferry-bluez-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let sockets = Arc::new(TestSockets {
+        phone: DemoPhone::new().with_reply_delay(Duration::from_millis(200)),
+        runtime: tokio::runtime::Handle::current(),
+        directory: directory.clone(),
+        connections: Mutex::new(Vec::new()),
+    });
+
+    let backend = Arc::new(BlueZ::with(&bus.address, sockets.clone()));
     let devices = backend.devices().await.unwrap();
     assert_eq!(1, devices.len());
     assert_eq!("Test iPhone", devices[0].name);
-    assert_eq!(PHONE, devices[0].id);
+    assert_eq!(ADDRESS, devices[0].address);
     assert!(devices[0].phone);
 
     let store = Arc::new(Mutex::new(Store::in_memory()));
@@ -304,6 +314,16 @@ async fn messages_contacts_and_notifications_through_bluez() {
     .await;
     assert_eq!(14, store.lock().unwrap().messages.len());
 
+    // The notification record is published under Ferry's own UUID, with its channel.
+    {
+        let profiles = profiles.0.lock().unwrap();
+        assert_eq!(1, profiles.len());
+        assert_eq!(MNS_RECORD_UUID, profiles[0].uuid);
+        assert_eq!("server", profiles[0].role);
+        assert!(profiles[0].record.contains(r#"<uuid value="0x1133"/>"#));
+        assert!(profiles[0].record.contains(r#"<uint8 value="0x09"/>"#));
+    }
+
     // Contacts arrive over a second channel.
     let contacts = store.clone();
     if contacts.lock().unwrap().contacts.is_empty() {
@@ -312,6 +332,9 @@ async fn messages_contacts_and_notifications_through_bluez() {
         })
         .await;
     }
+    let mut channels = sockets.connections.lock().unwrap().clone();
+    channels.sort();
+    assert_eq!(vec![MAS_CHANNEL, PSE_CHANNEL], channels);
 
     // Sending, then the reply through the notification server.
     let id = store
@@ -336,19 +359,13 @@ async fn messages_contacts_and_notifications_through_bluez() {
         assert_eq!(Status::Delivered, store.get(id).unwrap().status);
     }
 
-    // Disconnecting unregisters the notification server.
+    // Disconnecting removes the notification record.
     session.send(Command::Disconnect);
     until(&mut events, "disconnection", |event| {
         matches!(event, Event::State(State::Disconnected))
     })
     .await;
     tokio::time::sleep(Duration::from_millis(200)).await;
-    let roles: Vec<String> = fake
-        .profiles
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|p| p.role.clone())
-        .collect();
-    assert_eq!(vec!["client", "client"], roles);
+    assert!(profiles.0.lock().unwrap().is_empty());
+    std::fs::remove_dir_all(directory).unwrap();
 }

@@ -61,7 +61,7 @@ Set `RUST_LOG=ferry=debug` to see what's happening on the Bluetooth link.
 
 ### Platform notes
 
-**Linux.** Needs BlueZ 5 (`bluetoothd`) on the system D-Bus. Nothing else is linked at build time: D-Bus is spoken in pure Rust (zbus), and X11, Wayland and OpenGL are loaded at runtime. BlueZ's own `obexd` also publishes a notification server, and the phone may pick it instead of Ferry's. If messages only arrive at the 20 second check, stop it while using Ferry with `systemctl --user stop obex`.
+**Linux.** Needs BlueZ 5 (`bluetoothd`). Ferry opens its own Bluetooth sockets: it finds the phone's services with an SDP query and connects over RFCOMM, as BlueZ's `obexd` MAP client does, and uses BlueZ over D-Bus only to list paired devices and publish its notification server record. It doesn't register BlueZ profiles for MAP or PBAP, so it works alongside `obexd`, which most desktops run and which claims those profiles. Nothing is linked at build time: D-Bus is spoken in pure Rust (zbus), and X11, Wayland and OpenGL are loaded at runtime. `obexd` also publishes a notification server, and the phone may deliver to it instead of Ferry. If new messages only arrive at the 20 second check, stop it while using Ferry with `systemctl --user stop obex`, or turn it off for good with `systemctl --user mask obex`.
 
 **Windows.** Windows 10 or later. The Phone Link app also talks MAP to iPhones; if it's connected to the same phone, quit it first. Notifications show up as coming from Windows PowerShell unless Ferry is installed with its own app identity.
 
@@ -78,7 +78,7 @@ cargo test
 ```
 
 * `tests/session.rs` drives the session worker against the simulated iPhone, which runs the real MAP and PBAP servers from the `map` and `obex` crates over in-memory streams. It covers syncing, contacts, sending, delivery reports, notifications, read status and reconnection.
-* `tests/bluez.rs` (Linux) runs the BlueZ backend against a fake BlueZ on a private D-Bus that hands over real sockets, covering profile registration, `ConnectProfile` and file descriptor passing. It needs `dbus-daemon`.
+* `tests/bluez.rs` (Linux) runs the BlueZ backend against a fake BlueZ on a private D-Bus, with test sockets that answer SDP searches and lead to the simulated iPhone. It covers device listing, publishing the notification record while the MAP UUIDs are taken, and the whole session over the backend. It needs `dbus-daemon`. The kernel socket calls themselves need Bluetooth hardware.
 
 The Windows and macOS backends are type-checked by CI on their platforms.
 

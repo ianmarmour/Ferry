@@ -1,6 +1,6 @@
 [package]
 name = "ferry"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Ian Armour <ianmarmour@gmail.com>"]
 description = "A cross-platform desktop client for texting through your iPhone over Bluetooth MAP"
 edition = "2021"
