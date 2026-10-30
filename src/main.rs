@@ -11,17 +11,35 @@ use std::time::Duration;
 
 use ferry::bluetooth::{self, demo::DemoPhone, Backend};
 
+const USAGE: &str = "Usage: ferry [--demo]
+
+  --demo        try Ferry with a simulated iPhone
+  --install     add Ferry and its icon to your applications (Linux)
+  --uninstall   remove them again (Linux)";
+
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("ferry=info"))
         .init();
 
-    let demo = std::env::args().skip(1).any(|arg| arg == "--demo");
-    if std::env::args()
-        .skip(1)
-        .any(|arg| arg == "--help" || arg == "-h")
-    {
-        println!("Usage: ferry [--demo]\n\n  --demo   try Ferry with a simulated iPhone");
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    let flag = |name: &str| arguments.iter().any(|argument| argument == name);
+    if flag("--help") || flag("-h") {
+        println!("{}", USAGE);
         return Ok(());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if flag("--install") {
+            return Ok(ferry::desktop::install()?);
+        }
+        if flag("--uninstall") {
+            return Ok(ferry::desktop::uninstall()?);
+        }
+    }
+    let demo = flag("--demo");
+    #[cfg(target_os = "linux")]
+    if !demo {
+        ferry::desktop::ensure_installed();
     }
 
     let runtime = tokio::runtime::Builder::new_multi_thread()

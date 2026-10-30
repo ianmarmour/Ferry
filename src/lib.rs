@@ -14,6 +14,8 @@
 //!
 pub mod bluetooth;
 pub mod contacts;
+#[cfg(target_os = "linux")]
+pub mod desktop;
 pub mod model;
 pub mod notify;
 pub mod pbap;

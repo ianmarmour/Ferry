@@ -24,7 +24,10 @@ impl Notifier {
         #[cfg(all(unix, not(target_os = "macos")))]
         {
             notification
-                .icon("mail-message-new")
+                .icon(crate::ui::APP_ID)
+                .hint(notify_rust::Hint::DesktopEntry(
+                    crate::ui::APP_ID.to_string(),
+                ))
                 .hint(notify_rust::Hint::Category("im.received".to_string()));
             self.runtime.spawn(async move {
                 if let Err(error) = notification.show_async().await {

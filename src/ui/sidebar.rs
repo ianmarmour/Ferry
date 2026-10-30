@@ -167,12 +167,19 @@ impl FerryApp {
             if !self.demo {
                 ui.checkbox(&mut self.settings.auto_connect, "Connect on Startup");
             }
+            if self.tray.is_some() {
+                ui.checkbox(&mut self.settings.keep_running, "Keep Running in the Tray");
+            }
             ui.separator();
             ui.label(
                 RichText::new(format!("Bluetooth: {}", self.backend))
                     .size(11.5)
                     .color(palette.secondary),
             );
+            ui.separator();
+            if ui.button("Quit Ferry").clicked() {
+                self.quit(Some(ui.ctx()));
+            }
         });
     }
 }

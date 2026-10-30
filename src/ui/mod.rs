@@ -5,12 +5,20 @@
 //! phone itself; it reads the shared [`Store`] and sends [`Command`]s to the
 //! [`Session`].
 //!
+//! Closing the window keeps Ferry running in the system tray, connected to the phone
+//! and showing notifications. On Windows and macOS the window is hidden; on Linux,
+//! where Wayland cannot hide windows, it is closed and opened again from the tray.
+//!
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use egui::{Color32, Frame, Margin, Ui, UserAttentionType, ViewportCommand};
+use egui::{
+    Color32, Frame, Key, KeyboardShortcut, Margin, Modifiers, Ui, UserAttentionType,
+    ViewportCommand,
+};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
@@ -19,16 +27,27 @@ use crate::model::{Conversation, Message, Store};
 use crate::notify::Notifier;
 use crate::session::{cache_path, Command, Event, Outbox, Session, State, Timing};
 
+pub mod icon;
+mod instance;
 mod sidebar;
 pub mod theme;
 mod thread;
+pub mod tray;
 mod welcome;
 mod widgets;
 
 use theme::Palette;
+use tray::{Tray, Wake, Waker};
+
+/// The application id: the name of the desktop entry and icon on Linux.
+pub const APP_ID: &str = "io.github.ianmarmour.Ferry";
+
+/// Whether closing the window hides it, rather than closing it and opening a new one
+/// later. Wayland does not let applications hide their windows.
+const HIDE_ON_CLOSE: bool = !cfg!(target_os = "linux");
 
 /// What is persisted between runs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 struct Settings {
     /// The phone used last.
@@ -39,6 +58,32 @@ struct Settings {
     notifications: bool,
     /// Light, dark, or following the system.
     appearance: Appearance,
+    /// Whether closing the window keeps Ferry running in the tray.
+    keep_running: bool,
+}
+
+impl Settings {
+    fn path() -> Option<PathBuf> {
+        directories::ProjectDirs::from("", "", "Ferry")
+            .map(|dirs| dirs.config_dir().join("settings.json"))
+    }
+
+    fn load() -> Settings {
+        Settings::path()
+            .and_then(|path| std::fs::read(path).ok())
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default()
+    }
+
+    fn save(&self) {
+        let Some(path) = Settings::path() else { return };
+        let written = serde_json::to_vec_pretty(self)
+            .map_err(std::io::Error::other)
+            .and_then(|bytes| Store::write_snapshot(&path, &bytes));
+        if let Err(error) = written {
+            log::warn!("cannot save settings: {}", error);
+        }
+    }
 }
 
 impl Default for Settings {
@@ -48,6 +93,7 @@ impl Default for Settings {
             auto_connect: true,
             notifications: true,
             appearance: Appearance::System,
+            keep_running: true,
         }
     }
 }
@@ -69,8 +115,6 @@ impl From<Appearance> for egui::ThemePreference {
         }
     }
 }
-
-const SETTINGS_KEY: &str = "ferry";
 
 /// What the main area shows.
 #[derive(Debug, Clone, PartialEq)]
@@ -96,7 +140,8 @@ struct Notice {
     since: Instant,
 }
 
-/// The Ferry window.
+/// Ferry: the session, the tray and the state of the window, which outlive the
+/// window itself.
 pub struct FerryApp {
     session: Session,
     events: mpsc::UnboundedReceiver<Event>,
@@ -104,6 +149,16 @@ pub struct FerryApp {
     notifier: Notifier,
     backend: String,
     demo: bool,
+    runtime: tokio::runtime::Handle,
+    waker: Waker,
+    wakes: Receiver<Wake>,
+    tray: Option<Tray>,
+    /// Whether the window is showing.
+    visible: bool,
+    quitting: bool,
+    /// Whether the user was told that closing keeps Ferry in the tray.
+    told_about_tray: bool,
+    saved_settings: Settings,
 
     state: State,
     devices: Option<Result<Vec<Device>, String>>,
@@ -127,21 +182,19 @@ pub fn cache_dir() -> Option<PathBuf> {
 }
 
 impl FerryApp {
-    /// Creates the window's state and starts the session on `runtime`. A `demo`
-    /// session keeps nothing on disk.
-    pub fn new(
-        cc: &eframe::CreationContext<'_>,
+    /// Starts the session on `runtime`. A `demo` session keeps nothing on disk.
+    fn new(
         backend: Arc<dyn Backend>,
         runtime: tokio::runtime::Handle,
         demo: bool,
+        waker: Waker,
+        wakes: Receiver<Wake>,
     ) -> FerryApp {
-        theme::install(&cc.egui_ctx);
-
-        let settings: Settings = cc
-            .storage
-            .and_then(|storage| eframe::get_value(storage, SETTINGS_KEY))
-            .unwrap_or_default();
-        cc.egui_ctx.set_theme(settings.appearance);
+        let settings = if demo {
+            Settings::default()
+        } else {
+            Settings::load()
+        };
         let cache_dir = if demo { None } else { cache_dir() };
 
         // Show the last phone's history right away, before it connects.
@@ -152,17 +205,19 @@ impl FerryApp {
         let store = Arc::new(Mutex::new(store));
 
         let (sender, events) = mpsc::unbounded_channel();
-        let ctx = cc.egui_ctx.clone();
-        let outbox = Outbox::new(sender, move || ctx.request_repaint());
+        let session_waker = waker.clone();
+        let outbox = Outbox::new(sender, move || session_waker.wake(Wake::Session));
 
-        let _runtime = runtime.enter();
-        let session = Session::start(
-            backend.clone(),
-            store.clone(),
-            cache_dir,
-            Timing::default(),
-            outbox,
-        );
+        let session = {
+            let _runtime = runtime.enter();
+            Session::start(
+                backend.clone(),
+                store.clone(),
+                cache_dir,
+                Timing::default(),
+                outbox,
+            )
+        };
         session.send(Command::RefreshDevices);
 
         let mut auto_connect = settings.auto_connect || demo;
@@ -171,13 +226,27 @@ impl FerryApp {
             auto_connect = false;
         }
 
+        // The Windows and macOS trays need the event loop, so they start with the window.
+        #[cfg(target_os = "linux")]
+        let tray = Tray::start(&runtime, waker.clone());
+        #[cfg(not(target_os = "linux"))]
+        let tray = None;
+
         FerryApp {
             session,
             events,
             store,
-            notifier: Notifier::new(runtime),
+            notifier: Notifier::new(runtime.clone()),
             backend: backend.name(),
             demo,
+            runtime,
+            waker,
+            wakes,
+            tray,
+            visible: false,
+            quitting: false,
+            told_about_tray: false,
+            saved_settings: settings.clone(),
             state: State::Disconnected,
             devices: None,
             settings,
@@ -192,6 +261,132 @@ impl FerryApp {
             conversations: (u64::MAX, Vec::new()),
             thread: None,
         }
+    }
+
+    /// Sets up a new window.
+    fn attach(&mut self, cc: &eframe::CreationContext<'_>) {
+        theme::install(&cc.egui_ctx);
+        cc.egui_ctx.set_theme(self.settings.appearance);
+        self.waker.set_context(Some(cc.egui_ctx.clone()));
+        self.visible = true;
+        self.title.clear();
+
+        #[cfg(any(windows, target_os = "macos"))]
+        if self.tray.is_none() {
+            self.tray = Tray::start(self.waker.clone());
+        }
+    }
+
+    /// Whether closing the window keeps Ferry running.
+    fn keeps_running(&self) -> bool {
+        self.tray.is_some() && self.settings.keep_running && !self.quitting
+    }
+
+    /// Quits Ferry.
+    fn quit(&mut self, ctx: Option<&egui::Context>) {
+        self.quitting = true;
+        if let Some(ctx) = ctx {
+            ctx.send_viewport_cmd(ViewportCommand::Close);
+        }
+    }
+
+    /// Acts on the tray, other launches and the session; `ctx` is the open window's.
+    fn tick(&mut self, ctx: Option<&egui::Context>) {
+        while let Ok(wake) = self.wakes.try_recv() {
+            match (wake, ctx) {
+                (Wake::Open, Some(ctx)) => {
+                    ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+                    ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
+                    ctx.send_viewport_cmd(ViewportCommand::Focus);
+                    self.visible = true;
+                }
+                (Wake::Quit, ctx) => self.quit(ctx),
+                (Wake::Open | Wake::Session, _) => {}
+            }
+        }
+        self.update(ctx);
+    }
+
+    /// Takes in the session's events and keeps the tray, title and settings current.
+    fn update(&mut self, ctx: Option<&egui::Context>) {
+        self.process_events(ctx);
+        let unread = self.store().unread();
+        if let Some(tray) = &mut self.tray {
+            tray.set_unread(unread);
+        }
+        if let Some(ctx) = ctx {
+            self.update_title(ctx, unread);
+        }
+        if self.settings != self.saved_settings {
+            if !self.demo {
+                self.settings.save();
+            }
+            self.saved_settings = self.settings.clone();
+        }
+    }
+
+    /// Runs without a window until the tray asks for one; returns whether to open it.
+    fn background(&mut self) -> bool {
+        self.visible = false;
+        loop {
+            match self.wakes.recv_timeout(Duration::from_secs(1)) {
+                Ok(Wake::Open) => return true,
+                Ok(Wake::Quit) | Err(RecvTimeoutError::Disconnected) => return false,
+                Ok(Wake::Session) | Err(RecvTimeoutError::Timeout) => self.update(None),
+            }
+        }
+    }
+
+    /// Opens the window and runs it until it closes.
+    fn show_window(&mut self) -> eframe::Result {
+        let mut viewport = egui::ViewportBuilder::default()
+            .with_title("Ferry")
+            .with_app_id(APP_ID)
+            .with_icon(Arc::new(icon::window_icon()))
+            .with_inner_size([1000.0, 680.0])
+            .with_min_inner_size([680.0, 440.0]);
+        if cfg!(target_os = "macos") {
+            viewport = viewport
+                .with_fullsize_content_view(true)
+                .with_titlebar_shown(false)
+                .with_title_shown(false);
+        }
+        let options = eframe::NativeOptions {
+            viewport,
+            ..Default::default()
+        };
+        let name = if self.demo { "Ferry Demo" } else { "Ferry" };
+
+        let result = eframe::run_native(
+            name,
+            options,
+            Box::new(|cc| {
+                self.attach(cc);
+                Ok(Box::new(Window(self)))
+            }),
+        );
+        self.waker.set_context(None);
+        self.visible = false;
+        result
+    }
+
+    /// Disconnects from the phone politely before quitting.
+    fn shutdown(&mut self) {
+        if self.state == State::Disconnected {
+            return;
+        }
+        self.session.send(Command::Disconnect);
+        let events = &mut self.events;
+        self.runtime.block_on(async {
+            let disconnected = async {
+                while let Some(event) = events.recv().await {
+                    if event == Event::State(State::Disconnected) {
+                        break;
+                    }
+                }
+            };
+            let _ = tokio::time::timeout(Duration::from_secs(4), disconnected).await;
+        });
     }
 
     fn store(&self) -> MutexGuard<'_, Store> {
@@ -218,7 +413,7 @@ impl FerryApp {
         }
     }
 
-    fn process_events(&mut self, ctx: &egui::Context) {
+    fn process_events(&mut self, ctx: Option<&egui::Context>) {
         while let Ok(event) = self.events.try_recv() {
             match event {
                 Event::Devices(devices) => {
@@ -248,8 +443,9 @@ impl FerryApp {
     }
 
     /// Notifies the user of new messages they are not looking at.
-    fn announce(&mut self, ctx: &egui::Context, ids: &[u64]) {
-        let focused = ctx.input(|input| input.viewport().focused.unwrap_or(true));
+    fn announce(&mut self, ctx: Option<&egui::Context>, ids: &[u64]) {
+        let focused = self.visible
+            && ctx.is_some_and(|ctx| ctx.input(|input| input.viewport().focused.unwrap_or(true)));
         let mut notified = false;
 
         for &id in ids {
@@ -268,10 +464,12 @@ impl FerryApp {
             }
         }
 
-        if notified && !focused {
-            ctx.send_viewport_cmd(ViewportCommand::RequestUserAttention(
-                UserAttentionType::Informational,
-            ));
+        if let (true, false, Some(ctx)) = (notified, focused, ctx) {
+            if self.visible {
+                ctx.send_viewport_cmd(ViewportCommand::RequestUserAttention(
+                    UserAttentionType::Informational,
+                ));
+            }
         }
     }
 
@@ -293,8 +491,7 @@ impl FerryApp {
         self.session.send(Command::MarkRead(handles));
     }
 
-    fn update_title(&mut self, ctx: &egui::Context) {
-        let unread = self.store().unread();
+    fn update_title(&mut self, ctx: &egui::Context, unread: usize) {
         let title = match unread {
             0 => "Ferry".to_string(),
             unread => format!("Ferry ({})", unread),
@@ -418,13 +615,38 @@ impl FerryApp {
     }
 }
 
-impl eframe::App for FerryApp {
-    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
-        let ctx = ui.ctx().clone();
-        self.process_events(&ctx);
-        self.mark_read(&ctx);
-        self.update_title(&ctx);
+/// A window onto [`FerryApp`].
+struct Window<'a>(&'a mut FerryApp);
 
+impl eframe::App for Window<'_> {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.0.tick(Some(ctx));
+    }
+
+    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        let app = &mut *self.0;
+        let ctx = ui.ctx().clone();
+
+        let quit = KeyboardShortcut::new(Modifiers::COMMAND, Key::Q);
+        if ctx.input_mut(|input| input.consume_shortcut(&quit)) {
+            app.quit(Some(&ctx));
+        }
+        if ctx.input(|input| input.viewport().close_requested()) && app.keeps_running() {
+            if HIDE_ON_CLOSE {
+                ctx.send_viewport_cmd(ViewportCommand::CancelClose);
+                ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+                app.visible = false;
+            }
+            if !app.told_about_tray {
+                app.told_about_tray = true;
+                app.notifier.show(
+                    "Ferry is still running",
+                    "New messages will keep arriving. Open or quit Ferry from its tray icon.",
+                );
+            }
+        }
+
+        app.mark_read(&ctx);
         let palette = Palette::of(&ctx);
 
         egui::Panel::left("sidebar")
@@ -432,15 +654,11 @@ impl eframe::App for FerryApp {
             .default_size(300.0)
             .size_range(240.0..=420.0)
             .frame(Frame::new().fill(palette.sidebar))
-            .show(ui, |ui| self.sidebar(ui, &palette));
+            .show(ui, |ui| app.sidebar(ui, &palette));
 
         egui::CentralPanel::default()
             .frame(Frame::new().fill(palette.window))
-            .show(ui, |ui| self.main_area(ui, &palette));
-    }
-
-    fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage, SETTINGS_KEY, &self.settings);
+            .show(ui, |ui| app.main_area(ui, &palette));
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
@@ -448,32 +666,26 @@ impl eframe::App for FerryApp {
     }
 }
 
-/// Opens the window and runs until it is closed.
+/// Runs Ferry until it quits: the window, then the tray while the window is closed.
 pub fn run(
     backend: Arc<dyn Backend>,
     runtime: tokio::runtime::Handle,
     demo: bool,
 ) -> eframe::Result {
-    let mut viewport = egui::ViewportBuilder::default()
-        .with_title("Ferry")
-        .with_app_id("ferry")
-        .with_inner_size([1000.0, 680.0])
-        .with_min_inner_size([680.0, 440.0]);
-    if cfg!(target_os = "macos") {
-        viewport = viewport
-            .with_fullsize_content_view(true)
-            .with_titlebar_shown(false)
-            .with_title_shown(false);
+    let (waker, wakes) = Waker::new();
+    let name = if demo { "ferry-demo" } else { "ferry" };
+    if !instance::claim(name, waker.clone()) {
+        log::info!("Ferry is already running; showing its window");
+        return Ok(());
     }
 
-    let options = eframe::NativeOptions {
-        viewport,
-        ..Default::default()
-    };
-    let name = if demo { "Ferry Demo" } else { "Ferry" };
-    eframe::run_native(
-        name,
-        options,
-        Box::new(move |cc| Ok(Box::new(FerryApp::new(cc, backend, runtime, demo)))),
-    )
+    let mut app = FerryApp::new(backend, runtime, demo, waker, wakes);
+    loop {
+        app.show_window()?;
+        if app.quitting || !app.keeps_running() || !app.background() {
+            break;
+        }
+    }
+    app.shutdown();
+    Ok(())
 }

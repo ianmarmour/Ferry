@@ -15,6 +15,7 @@ identifier = "io.github.ianmarmour.ferry"
 category = "public.app-category.social-networking"
 short_description = "Text from your computer through your iPhone"
 osx_info_plist_exts = ["macos/Info.plist"]
+icon = ["assets/icons/ferry-32.png", "assets/icons/ferry-128.png", "assets/icons/ferry-256.png", "assets/icons/ferry-512.png"]
 
 [dependencies]
 anyhow = "1"
@@ -26,15 +27,20 @@ env_logger = "0.11"
 log = "0.4"
 map = { git = "https://github.com/ianmarmour/map", branch = "main", features = ["tokio"] }
 notify-rust = { version = "4", default-features = false, features = ["z-with-tokio"] }
+png = "0.18"
 obex = { git = "https://github.com/ianmarmour/obex", branch = "main", features = ["tokio"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["io-util", "macros", "rt-multi-thread", "sync", "time"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+ksni = "0.3"
 libc = "0.2"
 tokio = { version = "1", features = ["net"] }
 zbus = { version = "5", default-features = false, features = ["tokio"] }
+
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+tray-icon = "0.26"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Devices_Bluetooth", "Devices_Bluetooth_Rfcomm", "Devices_Enumeration", "Foundation", "Foundation_Collections", "Networking", "Networking_Sockets", "Storage_Streams"] }
@@ -46,6 +52,9 @@ dispatch2 = "0.3"
 objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-io-bluetooth = "0.3"
+
+[build-dependencies]
+winresource = "0.1"
 
 [profile.release]
 lto = "thin"
