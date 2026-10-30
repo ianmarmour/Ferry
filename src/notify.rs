@@ -1,0 +1,43 @@
+//! ## Desktop Notifications
+//!
+//! New messages are announced with the platform's notifications through
+//! `notify-rust`: the freedesktop notification service over D-Bus on Linux, the
+//! Notification Center on macOS and toast notifications on Windows.
+//!
+
+/// Shows desktop notifications without blocking the UI.
+pub struct Notifier {
+    runtime: tokio::runtime::Handle,
+}
+
+impl Notifier {
+    /// Creates a notifier delivering notifications from `runtime`.
+    pub fn new(runtime: tokio::runtime::Handle) -> Notifier {
+        Notifier { runtime }
+    }
+
+    /// Notifies of a message from `sender`.
+    pub fn show(&self, sender: &str, text: &str) {
+        let mut notification = notify_rust::Notification::new();
+        notification.appname("Ferry").summary(sender).body(text);
+
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            notification
+                .icon("mail-message-new")
+                .hint(notify_rust::Hint::Category("im.received".to_string()));
+            self.runtime.spawn(async move {
+                if let Err(error) = notification.show_async().await {
+                    log::warn!("cannot show a notification: {}", error);
+                }
+            });
+        }
+
+        #[cfg(not(all(unix, not(target_os = "macos"))))]
+        self.runtime.spawn_blocking(move || {
+            if let Err(error) = notification.show() {
+                log::warn!("cannot show a notification: {}", error);
+            }
+        });
+    }
+}

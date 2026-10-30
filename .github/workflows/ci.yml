@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install stable toolchain
+      run: rustup update stable && rustup default stable && rustup component add clippy rustfmt
+    - name: Install D-Bus (for the BlueZ test)
+      if: runner.os == 'Linux'
+      run: sudo apt-get update && sudo apt-get install -y dbus
+    - name: Check formatting
+      run: cargo fmt --check
+    - name: Clippy
+      run: cargo clippy --all-targets -- -D warnings
+    - name: Run tests
+      run: cargo test --verbose
+    - name: Build release
+      run: cargo build --release
