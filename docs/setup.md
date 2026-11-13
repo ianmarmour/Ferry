@@ -10,23 +10,6 @@ the iPhone.
 2. On the computer, open the system's Bluetooth settings, choose the iPhone
    and confirm that both screens show the same code.
 
-On Linux you can also pair from a terminal with `bluetoothctl`:
-
-```text
-power on
-agent on
-default-agent
-menu scan
-transport bredr
-back
-scan on
-```
-
-Wait for a line with your iPhone's name, then `scan off`,
-`pair <address>` and `trust <address>`. Limiting the scan to `bredr`
-(classic Bluetooth) hides the nameless addresses that nearby Bluetooth Low
-Energy devices advertise.
-
 ## 2. Allow messages and contacts
 
 On the iPhone, open **Settings › Bluetooth**, tap **ⓘ** next to your computer,
