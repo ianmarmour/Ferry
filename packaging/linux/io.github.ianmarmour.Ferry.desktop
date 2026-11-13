@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Ferry
+GenericName=Messages
+Comment=Text from your computer through your iPhone
+Exec=ferry
+Icon=io.github.ianmarmour.Ferry
+Terminal=false
+Categories=Network;InstantMessaging;Chat;
+Keywords=iPhone;SMS;iMessage;Messages;Bluetooth;Text;
+StartupWMClass=io.github.ianmarmour.Ferry
+StartupNotify=true

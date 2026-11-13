@@ -38,8 +38,22 @@ ask the first time Ferry connects.
 Download Ferry for your platform from the
 [latest release](https://github.com/ianmarmour/Ferry/releases/latest):
 
-- **Linux**: extract `ferry-linux-x86_64.tar.gz` and run `ferry`. The
-  first time, Ferry adds itself, with its icon, to your applications.
+- **Linux**: on Fedora and other RPM distributions, install the RPM:
+
+  ```bash
+  sudo dnf install ./ferry-linux-x86_64.rpm
+  ```
+
+  On Debian, Ubuntu and their derivatives, install the Debian package:
+
+  ```bash
+  sudo apt install ./ferry-linux-x86_64.deb
+  ```
+
+  Either adds Ferry to your applications. On other distributions, make
+  `ferry-linux-x86_64.AppImage` executable and run it, or extract
+  `ferry-linux-x86_64.tar.gz` and run `ferry`; the first time, Ferry adds
+  itself, with its icon, to your applications.
 - **Windows**: extract `ferry-windows-x64.zip` and run `ferry.exe`.
 - **macOS**: extract `ferry-macos-app.zip` and open `Ferry.app`. The app
   isn't signed, so the first time, right-click it and choose **Open**.
@@ -67,9 +81,12 @@ to publish its notification service, so it works alongside BlueZ's `obexd`.
   *AppIndicator and KStatusNotifierItem Support* in Extensions and log in
   again. Without a tray, closing the window quits Ferry.
 - **The icon in the dock and window list** comes from a desktop entry, which
-  is how Wayland finds an application's icon. Ferry installs one for your
-  user when it starts; `ferry --install` installs it again, for example
-  after moving the binary, and `ferry --uninstall` removes it.
+  is how Wayland finds an application's icon. The RPM and the Debian package
+  install one for every user. Run from the AppImage or the tarball, Ferry
+  installs one for your user when it starts; running it with `--install`
+  installs it again, for example after moving the AppImage or the binary,
+  and `--uninstall` removes it. Once Ferry is installed from a package, it
+  removes the one it installed for your user before.
 - **Data** is kept in `~/.local/share/ferry`, settings in
   `~/.config/ferry`.
 

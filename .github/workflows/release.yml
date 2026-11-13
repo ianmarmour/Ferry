@@ -18,18 +18,18 @@ env:
 
 jobs:
   build:
-    name: ${{ matrix.asset }}
+    name: ${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
         include:
           # The oldest supported Ubuntu, so the binary runs on older glibcs too.
           - os: ubuntu-22.04
-            asset: ferry-linux-x86_64.tar.gz
+            name: Linux
           - os: windows-latest
-            asset: ferry-windows-x64.zip
+            name: Windows
           - os: macos-latest
-            asset: ferry-macos-app.zip
+            name: macOS
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -48,30 +48,32 @@ jobs:
       - name: Build
         run: cargo build --release --locked
 
+      # The tarball, Debian package, RPM and AppImage.
       - name: Package for Linux
         if: runner.os == 'Linux'
         run: |
-          mkdir -p dist/ferry
-          cp target/release/ferry README.md LICENSE dist/ferry/
-          tar -czf "${{ matrix.asset }}" -C dist ferry
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends rpm squashfs-tools
+          packaging/linux/package.sh target/release/ferry 1 dist
 
       - name: Package for Windows
         if: runner.os == 'Windows'
         run: |
-          mkdir -p dist/ferry
-          cp target/release/ferry.exe README.md LICENSE dist/ferry/
-          (cd dist && 7z a "../${{ matrix.asset }}" ferry)
+          mkdir -p dist work/ferry
+          cp target/release/ferry.exe README.md LICENSE work/ferry/
+          (cd work && 7z a ../dist/ferry-windows-x64.zip ferry)
 
       - name: Package for macOS
         if: runner.os == 'macOS'
         run: |
-          macos/bundle.sh target/release/ferry dist
-          ditto -c -k --keepParent dist/Ferry.app "${{ matrix.asset }}"
+          macos/bundle.sh target/release/ferry work
+          mkdir -p dist
+          ditto -c -k --keepParent work/Ferry.app dist/ferry-macos-app.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset }}
-          path: ${{ matrix.asset }}
+          name: ferry-${{ runner.os }}
+          path: dist/*
           if-no-files-found: error
 
   publish:

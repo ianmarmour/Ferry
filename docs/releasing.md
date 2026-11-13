@@ -18,9 +18,18 @@ the README's download links point to:
 
 | File | Contents |
 |---|---|
-| `ferry-linux-x86_64.tar.gz` | The `ferry` binary, built on Ubuntu 22.04 so it runs with glibc 2.35 or newer |
+| `ferry-linux-x86_64.AppImage` | Ferry as an AppImage, which runs without installing |
+| `ferry-linux-x86_64.rpm` | The RPM, for Fedora and other RPM distributions |
+| `ferry-linux-x86_64.deb` | The Debian package, for Debian, Ubuntu and their derivatives |
+| `ferry-linux-x86_64.tar.gz` | The `ferry` binary |
 | `ferry-windows-x64.zip` | `ferry.exe` |
 | `ferry-macos-app.zip` | `Ferry.app` for Apple silicon, unsigned |
+
+The Linux files hold the same binary, built on Ubuntu 22.04 so that it runs
+with glibc 2.35 or newer; [`packaging/linux`](../packaging/linux) has the
+scripts that package it. CI builds the Linux packages for every pull request
+too, installs them on Ubuntu and Fedora, and keeps them as the run's
+artifacts for two weeks.
 
 Starting the workflow by hand from the Actions tab builds the same files
 without publishing them; they're kept as the run's artifacts.

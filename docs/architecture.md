@@ -79,7 +79,7 @@ notification connections. Connections are handed over as tokio streams.
 | `src/text.rs` | Text and attachments of MIME messages |
 | `src/ui/` | The window, tray icon, app icon and photos |
 | `src/notify.rs` | Desktop notifications |
-| `src/desktop.rs` | The Linux desktop entry |
+| `src/desktop.rs` | The Linux desktop entry, from `packaging/linux`, installed for the user when no package installed it |
 | `src/migrate.rs` | Moving data back from Tidings, a name Ferry briefly had |
 
 ## Tests

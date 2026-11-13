@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- What software centers, such as GNOME Software and KDE Discover, show of
+     Ferry. stage.sh fills in the version and the date of the build. -->
+<component type="desktop-application">
+  <id>io.github.ianmarmour.Ferry</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Ferry</name>
+  <summary>Text from your computer through your iPhone</summary>
+  <developer id="io.github.ianmarmour">
+    <name>Ian Armour</name>
+  </developer>
+  <description>
+    <p>
+      Ferry brings your iPhone’s messages to your desktop over Bluetooth. Read
+      your conversations, reply, and start new ones with anyone in your
+      contacts, in a window styled after Messages on the Mac.
+    </p>
+    <p>
+      It talks to the phone the way a car does, so there’s no app to install on
+      the iPhone, no Mac to relay through and no cloud service in between.
+    </p>
+    <ul>
+      <li>Conversations with your contacts’ names and photos</li>
+      <li>Photos shown inline, and sent from your computer</li>
+      <li>Notifications for new messages, from the system tray when the window is closed</li>
+      <li>Light and dark appearance, following the system</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.ianmarmour.Ferry.desktop</launchable>
+  <provides>
+    <binary>ferry</binary>
+  </provides>
+  <url type="homepage">https://github.com/ianmarmour/Ferry</url>
+  <url type="bugtracker">https://github.com/ianmarmour/Ferry/issues</url>
+  <url type="vcs-browser">https://github.com/ianmarmour/Ferry</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>A conversation</caption>
+      <image>https://raw.githubusercontent.com/ianmarmour/Ferry/main/docs/screenshots/conversation-light.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>A conversation in dark mode</caption>
+      <image>https://raw.githubusercontent.com/ianmarmour/Ferry/main/docs/screenshots/conversation-dark.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Starting a conversation with a contact</caption>
+      <image>https://raw.githubusercontent.com/ianmarmour/Ferry/main/docs/screenshots/new-message.png</image>
+    </screenshot>
+  </screenshots>
+  <branding>
+    <color type="primary" scheme_preference="light">#7FE3C6</color>
+    <color type="primary" scheme_preference="dark">#05606A</color>
+  </branding>
+  <content_rating type="oars-1.1">
+    <content_attribute id="social-chat">intense</content_attribute>
+  </content_rating>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>

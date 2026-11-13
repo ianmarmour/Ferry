@@ -40,7 +40,7 @@ relay through and no cloud service in between.
 
 | Platform | Download |
 |---|---|
-| Linux (x86_64) | [TARBALL](https://github.com/ianmarmour/Ferry/releases/latest/download/ferry-linux-x86_64.tar.gz) |
+| Linux (x86_64) | [APPIMAGE](https://github.com/ianmarmour/Ferry/releases/latest/download/ferry-linux-x86_64.AppImage), [RPM](https://github.com/ianmarmour/Ferry/releases/latest/download/ferry-linux-x86_64.rpm), [DEB](https://github.com/ianmarmour/Ferry/releases/latest/download/ferry-linux-x86_64.deb), [TARBALL](https://github.com/ianmarmour/Ferry/releases/latest/download/ferry-linux-x86_64.tar.gz) |
 | Windows (x64) | [ZIP](https://github.com/ianmarmour/Ferry/releases/latest/download/ferry-windows-x64.zip) |
 | macOS (Apple silicon) | [APP](https://github.com/ianmarmour/Ferry/releases/latest/download/ferry-macos-app.zip) |
 
@@ -76,6 +76,7 @@ Ferry on each platform. To look around without a phone, run
 | [`src/ui`](src/ui), [`src/notify.rs`](src/notify.rs) | The window, tray icon and desktop notifications |
 | [`tests`](tests) | End-to-end tests against the simulated iPhone, BlueZ and the tray |
 | [`assets`](assets) | The icon, the banner and their renderings |
+| [`packaging/linux`](packaging/linux) | The Linux packages: Debian package, RPM and AppImage |
 | [`macos`](macos) | The macOS app bundle |
 | [`docs`](docs) | User and developer guides |
 
@@ -90,7 +91,8 @@ cargo run --release
 
 `cargo run --release -- --demo` runs it against the simulated iPhone, and
 `cargo test` runs the tests, including end-to-end sessions with the simulated
-iPhone. CI checks formatting, Clippy and the tests on Linux, Windows and macOS.
+iPhone. CI checks formatting, Clippy and the tests on Linux, Windows and macOS,
+and builds the Linux packages and installs them on Ubuntu and Fedora.
 
 ## License
 
