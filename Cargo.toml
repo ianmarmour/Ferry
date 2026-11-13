@@ -9,14 +9,6 @@ readme = "README.md"
 license = "MIT"
 repository = "https://github.com/ianmarmour/Tidings"
 
-[package.metadata.bundle]
-name = "Tidings"
-identifier = "io.github.ianmarmour.tidings"
-category = "public.app-category.social-networking"
-short_description = "Text from your computer through your iPhone"
-osx_info_plist_exts = ["macos/Info.plist"]
-icon = ["assets/icons/tidings-32.png", "assets/icons/tidings-128.png", "assets/icons/tidings-256.png", "assets/icons/tidings-512.png"]
-
 [dependencies]
 anyhow = "1"
 chrono = "0.4"
@@ -25,11 +17,11 @@ eframe = { version = "0.37", default-features = false, features = ["accesskit", 
 egui = { version = "0.37", features = ["monochrome_emoji_fonts"] }
 env_logger = "0.11"
 log = "0.4"
-map = { git = "https://github.com/ianmarmour/map", branch = "main", features = ["tokio"] }
+map = { package = "obex-protocol-map", version = "0.1", features = ["tokio"] }
 notify-rust = { version = "4", default-features = false, features = ["z-with-tokio"] }
 image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 png = "0.18"
-obex = { git = "https://github.com/ianmarmour/obex", branch = "main", features = ["tokio"] }
+obex = { package = "obex-protocol", version = "0.1", features = ["tokio"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["io-util", "macros", "rt-multi-thread", "sync", "time"] }

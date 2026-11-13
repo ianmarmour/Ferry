@@ -1,0 +1,98 @@
+# Builds Tidings for Linux, Windows and macOS, and publishes the builds as a
+# GitHub release when a version tag such as v0.3.0 is pushed. Started by hand
+# from the Actions tab, it builds without publishing; the builds are kept as
+# the run's artifacts.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: 1.97.0
+
+jobs:
+  build:
+    name: ${{ matrix.asset }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest supported Ubuntu, so the binary runs on older glibcs too.
+          - os: ubuntu-22.04
+            asset: tidings-linux-x86_64.tar.gz
+          - os: windows-latest
+            asset: tidings-windows-x64.zip
+          - os: macos-latest
+            asset: tidings-macos-app.zip
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Package for Linux
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist/tidings
+          cp target/release/tidings README.md LICENSE dist/tidings/
+          tar -czf "${{ matrix.asset }}" -C dist tidings
+
+      - name: Package for Windows
+        if: runner.os == 'Windows'
+        run: |
+          mkdir -p dist/tidings
+          cp target/release/tidings.exe README.md LICENSE dist/tidings/
+          (cd dist && 7z a "../${{ matrix.asset }}" tidings)
+
+      - name: Package for macOS
+        if: runner.os == 'macOS'
+        run: |
+          macos/bundle.sh target/release/tidings dist
+          ditto -c -k --keepParent dist/Tidings.app "${{ matrix.asset }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish the release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Tidings ${GITHUB_REF_NAME#v}" \
+            --generate-notes

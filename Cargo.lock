@@ -2396,16 +2396,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "map"
-version = "0.0.1"
-source = "git+https://github.com/ianmarmour/map?branch=main#05f8534a585b1de51513fbda52eb4be8bac571fc"
-dependencies = [
- "obex",
- "quick-xml",
- "tokio",
-]
-
-[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2641,11 +2631,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "obex"
-version = "0.0.1"
-source = "git+https://github.com/ianmarmour/obex?branch=main#4d0cb827996941d1f759cc2122f471caabce433f"
+name = "obex-protocol"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ed4ae440a6e08e3e96d471dc4be7df6437c2eaebfad7d532bfe08ad405d69e7"
 dependencies = [
  "nom 7.1.3",
+ "tokio",
+]
+
+[[package]]
+name = "obex-protocol-map"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cae5475ea3ed4c9385efd032d41f28a8bf465472196b596542b8fb5247c00956"
+dependencies = [
+ "obex-protocol",
+ "quick-xml",
  "tokio",
 ]
 
@@ -3977,9 +3979,9 @@ dependencies = [
  "ksni",
  "libc",
  "log",
- "map",
  "notify-rust",
- "obex",
+ "obex-protocol",
+ "obex-protocol-map",
  "objc2 0.6.5",
  "objc2-foundation 0.3.2",
  "objc2-io-bluetooth",
