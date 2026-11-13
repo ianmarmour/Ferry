@@ -1,7 +1,7 @@
-//! # Tidings
+//! # Ferry
 //!
 //! Texting from the desktop through an iPhone, over Bluetooth, with nothing to install
-//! on the phone. Tidings is a Message Access Profile client (MAP MCE), like a car kit:
+//! on the phone. Ferry is a Message Access Profile client (MAP MCE), like a car kit:
 //! it reads and sends messages through the phone's Message Access Server, is notified
 //! of new messages by the phone, and downloads contacts over the Phone Book Access
 //! Profile.

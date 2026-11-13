@@ -1,18 +1,19 @@
-//! ## Migration from Ferry
+//! ## Migration from Tidings
 //!
-//! Tidings used to be called Ferry. On first launch, this moves Ferry's message
-//! caches, contact photos, attachments and settings to the folders of Tidings, points
-//! the paths saved in the caches at their new place, and removes Ferry's desktop entry.
+//! Ferry was briefly called Tidings, which moved Ferry's data to folders of its
+//! own. On first launch, this moves the message caches, contact photos,
+//! attachments and settings back to Ferry's folders, points the paths saved in the
+//! caches at their place, and removes Tidings' desktop entry.
 //!
 use std::path::Path;
 
-/// The former name, which named the folders.
-const LEGACY_NAME: &str = "Ferry";
+/// The other name, which named the folders.
+const LEGACY_NAME: &str = "Tidings";
 
-/// Moves what Ferry left behind, if anything, and if Tidings has nothing yet.
-pub fn from_ferry() {
+/// Moves what Tidings left behind, if anything, and if Ferry has nothing yet.
+pub fn from_tidings() {
     let legacy = directories::ProjectDirs::from("", "", LEGACY_NAME);
-    let current = directories::ProjectDirs::from("", "", "Tidings");
+    let current = directories::ProjectDirs::from("", "", "Ferry");
     if let (Some(legacy), Some(current)) = (legacy, current) {
         move_folder(legacy.data_dir(), current.data_dir());
         move_folder(legacy.config_dir(), current.config_dir());
@@ -34,7 +35,7 @@ fn move_folder(old: &Path, new: &Path) {
         Ok(()) => {
             log::info!("moved {} to {}", old.display(), new.display());
             rewrite_paths(new, old, new);
-            // Windows keeps data and settings in subfolders of a folder named Ferry.
+            // Windows keeps data and settings in subfolders of a folder named Tidings.
             if let Some(parent) = old.parent() {
                 if parent.file_name().is_some_and(|name| name == LEGACY_NAME) {
                     let _ = std::fs::remove_dir(parent);
@@ -82,9 +83,9 @@ mod tests {
 
     #[test]
     fn moves_folders_and_their_saved_paths() {
-        let root = std::env::temp_dir().join(format!("tidings-migrate-{}", std::process::id()));
-        let old = root.join("ferry");
-        let new = root.join("tidings");
+        let root = std::env::temp_dir().join(format!("ferry-migrate-{}", std::process::id()));
+        let old = root.join("tidings");
+        let new = root.join("ferry");
         std::fs::create_dir_all(old.join("phones/photos")).unwrap();
         std::fs::write(old.join("phones/photos/a.png"), b"png").unwrap();
         let saved = old.join("phones/photos/a.png");
@@ -100,7 +101,7 @@ mod tests {
         assert_eq!(new.join("phones/photos/a.png"), photo);
         assert_eq!(b"png".to_vec(), std::fs::read(photo).unwrap());
 
-        // Nothing happens once Tidings has its own folder.
+        // Nothing happens once Ferry has its own folder.
         std::fs::create_dir_all(&old).unwrap();
         move_folder(&old, &new);
         assert!(old.exists());

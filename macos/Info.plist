@@ -5,17 +5,17 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Tidings</string>
+	<string>Ferry</string>
 	<key>CFBundleExecutable</key>
-	<string>tidings</string>
+	<string>ferry</string>
 	<key>CFBundleIconFile</key>
-	<string>Tidings</string>
+	<string>Ferry</string>
 	<key>CFBundleIdentifier</key>
-	<string>io.github.ianmarmour.Tidings</string>
+	<string>io.github.ianmarmour.Ferry</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Tidings</string>
+	<string>Ferry</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -29,6 +29,6 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Tidings connects to your iPhone over Bluetooth to read and send your messages.</string>
+	<string>Ferry connects to your iPhone over Bluetooth to read and send your messages.</string>
 </dict>
 </plist>

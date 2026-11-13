@@ -1,4 +1,4 @@
-# Checks Tidings on Linux, Windows and macOS: formatting, Clippy and the tests.
+# Checks Ferry on Linux, Windows and macOS: formatting, Clippy and the tests.
 # Runs on pull requests, on pushes to main, and when started by hand from the
 # Actions tab.
 name: CI

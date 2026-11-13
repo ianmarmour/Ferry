@@ -1,4 +1,4 @@
-# Builds Tidings for Linux, Windows and macOS, and publishes the builds as a
+# Builds Ferry for Linux, Windows and macOS, and publishes the builds as a
 # GitHub release when a version tag such as v0.3.0 is pushed. Started by hand
 # from the Actions tab, it builds without publishing; the builds are kept as
 # the run's artifacts.
@@ -25,11 +25,11 @@ jobs:
         include:
           # The oldest supported Ubuntu, so the binary runs on older glibcs too.
           - os: ubuntu-22.04
-            asset: tidings-linux-x86_64.tar.gz
+            asset: ferry-linux-x86_64.tar.gz
           - os: windows-latest
-            asset: tidings-windows-x64.zip
+            asset: ferry-windows-x64.zip
           - os: macos-latest
-            asset: tidings-macos-app.zip
+            asset: ferry-macos-app.zip
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -51,22 +51,22 @@ jobs:
       - name: Package for Linux
         if: runner.os == 'Linux'
         run: |
-          mkdir -p dist/tidings
-          cp target/release/tidings README.md LICENSE dist/tidings/
-          tar -czf "${{ matrix.asset }}" -C dist tidings
+          mkdir -p dist/ferry
+          cp target/release/ferry README.md LICENSE dist/ferry/
+          tar -czf "${{ matrix.asset }}" -C dist ferry
 
       - name: Package for Windows
         if: runner.os == 'Windows'
         run: |
-          mkdir -p dist/tidings
-          cp target/release/tidings.exe README.md LICENSE dist/tidings/
-          (cd dist && 7z a "../${{ matrix.asset }}" tidings)
+          mkdir -p dist/ferry
+          cp target/release/ferry.exe README.md LICENSE dist/ferry/
+          (cd dist && 7z a "../${{ matrix.asset }}" ferry)
 
       - name: Package for macOS
         if: runner.os == 'macOS'
         run: |
-          macos/bundle.sh target/release/tidings dist
-          ditto -c -k --keepParent dist/Tidings.app "${{ matrix.asset }}"
+          macos/bundle.sh target/release/ferry dist
+          ditto -c -k --keepParent dist/Ferry.app "${{ matrix.asset }}"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -94,5 +94,5 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Tidings ${GITHUB_REF_NAME#v}" \
+            --title "Ferry ${GITHUB_REF_NAME#v}" \
             --generate-notes

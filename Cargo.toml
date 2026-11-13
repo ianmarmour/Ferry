@@ -1,13 +1,13 @@
 [package]
-name = "tidings"
-version = "0.3.0"
+name = "ferry"
+version = "0.3.1"
 authors = ["Ian Armour <ianmarmour@gmail.com>"]
 description = "A cross-platform desktop client for texting through your iPhone over Bluetooth MAP"
 edition = "2021"
 rust-version = "1.95"
 readme = "README.md"
 license = "MIT"
-repository = "https://github.com/ianmarmour/Tidings"
+repository = "https://github.com/ianmarmour/Ferry"
 
 [dependencies]
 anyhow = "1"

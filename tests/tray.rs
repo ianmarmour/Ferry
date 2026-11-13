@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tidings::ui::tray::{Tray, Wake, Waker};
+use ferry::ui::tray::{Tray, Wake, Waker};
 use zbus::interface;
 use zbus::zvariant::OwnedValue;
 
