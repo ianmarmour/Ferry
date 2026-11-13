@@ -1,114 +1,97 @@
-# Tidings
-[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![CI](https://github.com/ianmarmour/Tidings/workflows/CI/badge.svg)](https://github.com/ianmarmour/Tidings/actions/workflows/ci.yml)
+<p align="center">
+  <img src="assets/ferry-banner.svg" width="760" alt="Ferry: your iPhone's messages, on your computer">
+</p>
 
-A cross-platform desktop client for texting through your iPhone, over Bluetooth.
+<p align="center">
+  <a href="https://github.com/ianmarmour/Ferry/actions/workflows/ci.yml"><img src="https://github.com/ianmarmour/Ferry/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0A7E86" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/rust-1.95%2B-0A7E86?logo=rust" alt="Rust 1.95+">
+  <a href="#platforms"><img src="https://img.shields.io/badge/platforms-Linux%20%7C%20Windows%20%7C%20macOS-0A7E86" alt="Platforms: Linux, Windows, macOS"></a>
+</p>
 
-Tidings reads your messages and sends texts to any of your contacts, in a window styled after Messages on the Mac. Nothing is installed on the phone: Tidings talks to it the way a car does, with the Bluetooth **Message Access Profile** (MAP) for messages and the **Phone Book Access Profile** (PBAP) for contacts.
+**Text from your computer through your iPhone, with nothing to install on the phone.**
 
-It runs on Linux (BlueZ over D-Bus), Windows (WinRT) and macOS (IOBluetooth), and is built on the [`map`](https://github.com/ianmarmour/map) and [`obex`](https://github.com/ianmarmour/obex) crates.
+Ferry brings your iPhone's messages to your Linux, Windows or Mac desktop
+over Bluetooth. Read your conversations, reply, and start new ones with anyone
+in your contacts, in a window styled after Messages on the Mac. It talks to the
+phone the way a car does, so there's no app to install on the iPhone, no Mac to
+relay through and no cloud service in between.
 
-## How It Works
+<p align="center">
+  <img src="docs/screenshots/conversation-light.png" width="800" alt="A conversation in Ferry, with a photo">
+</p>
 
-```text
-+-----------------------------------------------------------------+
-|  ui         egui window: conversations, bubbles, composer       |
-+-----------------------------------------------------------------+
-|  session    tokio worker driving the phone like a car kit       |
-|  model      messages, conversations, contacts, on-disk cache    |
-+--------------------+--------------------+-----------------------+
-|  map::tokio        |  map::tokio        |  pbap (on obex)       |
-|  MasClient         |  MnsServer         |  PullPhoneBook        |
-|  browse, read,     |  new message and   |  contacts             |
-|  send              |  delivery events   |                       |
-+--------------------+--------------------+-----------------------+
-|  bluetooth  BlueZ (D-Bus) | WinRT | IOBluetooth | demo phone    |
-+-----------------------------------------------------------------+
-```
+## Highlights
 
-When you connect, Tidings:
+- **Nothing on the Phone** - Ferry uses the Bluetooth profiles car kits use:
+  the Message Access Profile for messages and the Phone Book Access Profile
+  for contacts. Pair once, turn on two switches on the iPhone, and you're set.
+- **Feels Like Messages** - Conversations with contact photos, bubbles grouped
+  by time, delivery status, photos inline, and light and dark modes.
+- **Stays Out of the Way** - New messages raise desktop notifications, and
+  closing the window keeps Ferry connected in the system tray.
+- **Private** - Messages travel over a direct, encrypted Bluetooth link between
+  your phone and your computer, and are kept only on your computer.
+- **Multi Platform** - One app for Linux, Windows and macOS, built on the
+  [`obex-protocol`](https://crates.io/crates/obex-protocol) and
+  [`obex-protocol-map`](https://crates.io/crates/obex-protocol-map) crates.
 
-1. opens the phone's **Message Access Server** (MAP MAS) and goes to `telecom/msg`;
-2. publishes its own **Message Notification Server** (MAP MNS) and registers for notifications, so the phone reports new messages and deliveries as they happen;
-3. downloads your contacts over **PBAP** on a second channel, then their photos, which become avatars;
-4. lists the inbox and Sent folder and downloads the messages it hasn't seen, one at a time between your commands, so sending is never stuck behind a sync;
-5. sends your texts by pushing them to the phone's outbox.
+## Platforms
 
-iPhones only expose recent messages over MAP, so Tidings keeps everything it has seen in a local cache (one file per phone) and the history builds up over time. Messages are matched across sessions by content, since MAP handles don't outlive a session. If the link drops, Tidings reconnects with a growing delay. Until the phone actually connects to the notification server, Tidings checks for new messages every 20 seconds.
+| Platform | Download |
+|---|---|
+| Linux (x86_64) | [TARBALL](https://github.com/ianmarmour/Ferry/releases/latest/download/ferry-linux-x86_64.tar.gz) |
+| Windows (x64) | [ZIP](https://github.com/ianmarmour/Ferry/releases/latest/download/ferry-windows-x64.zip) |
+| macOS (Apple silicon) | [APP](https://github.com/ianmarmour/Ferry/releases/latest/download/ferry-macos-app.zip) |
 
-New messages raise a native desktop notification: the freedesktop notification service over D-Bus on Linux, toasts on Windows and Notification Center on macOS.
+Every download is on the
+[latest release](https://github.com/ianmarmour/Ferry/releases/latest), and
+the [setup guide](docs/setup.md) walks through pairing your iPhone and running
+Ferry on each platform. To look around without a phone, run
+`ferry --demo`, which connects to a simulated iPhone.
 
-Closing the window keeps Tidings running in the system tray, still connected and still notifying; the tray icon opens it again, shows a red dot while there are unread messages, and quits Tidings. Ctrl+Q (⌘Q) quits from the window. Launching Tidings while it runs shows its window.
+<p align="center">
+  <img src="docs/screenshots/conversation-dark.png" width="49%" alt="Ferry in dark mode">
+  <img src="docs/screenshots/new-message.png" width="49%" alt="Starting a new message, with contacts from the iPhone">
+</p>
 
-Photos sent as MMS appear inline; click one to open it. iPhones usually don't transfer attachments over MAP and send text such as "Attachment: 1 Photo" in their place, which Tidings shows as a photo card. Run with `RUST_LOG=tidings=debug` to see what your phone sends for a message with attachments.
+## Documentation
 
-## Getting Started
+- **[Setup](docs/setup.md)**: pair your iPhone, install Ferry, and what to
+  know on each platform.
+- **[Troubleshooting](docs/troubleshooting.md)**: fixes for common problems,
+  how to collect logs, and known limitations.
+- **[How It Works](docs/architecture.md)**: how Ferry talks to the phone,
+  and how the code fits together.
+- **[Releasing](docs/releasing.md)**: how a release is built and published.
 
-### 1. Set up the iPhone
+## Repository layout
 
-1. Pair the iPhone with your computer in the system's Bluetooth settings.
-2. On the iPhone, open **Settings › Bluetooth**, tap **ⓘ** next to your computer and turn on **Show Notifications** and **Sync Contacts**.
+| Path | What it is |
+|---|---|
+| [`src/bluetooth`](src/bluetooth) | The Bluetooth backends: BlueZ on Linux, WinRT on Windows, IOBluetooth on macOS, and the simulated iPhone |
+| [`src/session.rs`](src/session.rs) | The worker that talks to the phone over MAP and PBAP |
+| [`src/model.rs`](src/model.rs), [`src/contacts.rs`](src/contacts.rs), [`src/text.rs`](src/text.rs) | Messages, conversations, contacts and their cache |
+| [`src/pbap.rs`](src/pbap.rs) | A Phone Book Access client on `obex-protocol` |
+| [`src/ui`](src/ui), [`src/notify.rs`](src/notify.rs) | The window, tray icon and desktop notifications |
+| [`tests`](tests) | End-to-end tests against the simulated iPhone, BlueZ and the tray |
+| [`assets`](assets) | The icon, the banner and their renderings |
+| [`macos`](macos) | The macOS app bundle |
+| [`docs`](docs) | User and developer guides |
 
-### 2. Build and run
+## Contributing
+
+Bug reports and pull requests are welcome. To build Ferry yourself, install
+Rust 1.95 or newer and run:
 
 ```bash
 cargo run --release
 ```
 
-To try Tidings without a phone, run it against a simulated iPhone. Its contacts answer your messages, and new ones arrive now and then:
+`cargo run --release -- --demo` runs it against the simulated iPhone, and
+`cargo test` runs the tests, including end-to-end sessions with the simulated
+iPhone. CI checks formatting, Clippy and the tests on Linux, Windows and macOS.
 
-```bash
-cargo run --release -- --demo
-```
+## License
 
-Set `RUST_LOG=tidings=debug` to see what's happening on the Bluetooth link.
-
-On Linux, Tidings installs a desktop entry and its icon for your user the first time it runs, as Wayland takes an application's icon from its desktop entry. `tidings --install` does this explicitly and `tidings --uninstall` removes them.
-
-### Platform notes
-
-**Linux.** Needs BlueZ 5 (`bluetoothd`). Tidings opens its own Bluetooth sockets: it finds the phone's services with an SDP query and connects over RFCOMM, as BlueZ's `obexd` MAP client does, and uses BlueZ over D-Bus only to list paired devices and publish its notification server record. It doesn't register BlueZ profiles for MAP or PBAP, so it works alongside `obexd`, which most desktops run and which claims those profiles. Nothing is linked at build time: D-Bus is spoken in pure Rust (zbus), and X11, Wayland and OpenGL are loaded at runtime. `obexd` also publishes a notification server, and the phone may deliver to it instead of Tidings. If new messages only arrive at the 20 second check, stop it while using Tidings with `systemctl --user stop obex`, or turn it off for good with `systemctl --user mask obex`.
-
-The tray icon is a StatusNotifierItem: KDE, Xfce and Cinnamon show it, and GNOME does with the AppIndicator extension (on Fedora, `sudo dnf install gnome-shell-extension-appindicator`, then enable it in Extensions). Without a tray, closing the window quits Tidings.
-
-**Windows.** Windows 10 or later. The Phone Link app also talks MAP to iPhones; if it's connected to the same phone, quit it first. Notifications show up as coming from Windows PowerShell unless Tidings is installed with its own app identity.
-
-**macOS.** Bluetooth access requires `NSBluetoothAlwaysUsageDescription`. Run Tidings from a terminal that has Bluetooth permission, or bundle it with [`cargo-bundle`](https://github.com/burtonageo/cargo-bundle), which picks up `macos/Info.plist`:
-
-```bash
-cargo bundle --release
-```
-
-## Development
-
-```bash
-cargo test
-```
-
-* `tests/session.rs` drives the session worker against the simulated iPhone, which runs the real MAP and PBAP servers from the `map` and `obex` crates over in-memory streams. It covers syncing, contacts, sending, delivery reports, notifications, read status and reconnection.
-* `tests/tray.rs` (Linux) registers the tray icon with a fake StatusNotifierWatcher and clicks it.
-* `tests/bluez.rs` (Linux) runs the BlueZ backend against a fake BlueZ on a private D-Bus, with test sockets that answer SDP searches and lead to the simulated iPhone. It covers device listing, publishing the notification record while the MAP UUIDs are taken, and the whole session over the backend. It needs `dbus-daemon`. The kernel socket calls themselves need Bluetooth hardware.
-
-The Windows and macOS backends are type-checked by CI on their platforms.
-
-| Module | |
-|--------|---|
-| `src/bluetooth/` | the `Backend` trait, `linux.rs` (BlueZ), `windows.rs` (WinRT), `macos.rs` (IOBluetooth), `demo.rs` (simulated iPhone) |
-| `src/session.rs` | the worker talking to the phone |
-| `src/model.rs` | messages, conversations and the cache |
-| `src/contacts.rs` | vCard parsing and address matching |
-| `src/pbap.rs` | a minimal PBAP client on `obex` |
-| `src/text.rs` | text extraction from MIME message bodies |
-| `src/ui/` | the window, tray icon and app icon |
-| `src/desktop.rs` | the Linux desktop entry |
-| `assets/` | the icon, `tidings.svg`, and its renderings |
-
-## Limitations
-
-* Conversations are one-to-one; group messages show up in the sender's conversation.
-* Only photos are shown inline; other attachments open in the system's viewer. HEIC photos aren't decoded.
-* What an iPhone allows over MAP depends on its iOS version. Tidings reports what the phone refuses, for example if it won't accept messages to send.
-
-## Minimum Supported Rust Version
-
-Rust 1.95, the version egui 0.37 requires.
+Ferry is licensed under the [MIT License](LICENSE).
