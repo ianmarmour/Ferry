@@ -67,12 +67,79 @@ pub struct Message {
     pub read: bool,
     /// Delivery state.
     pub status: Status,
+    /// Photos, videos and other attachments.
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
 }
 
 impl Message {
     /// The key of the conversation the message belongs to.
     pub fn conversation(&self) -> String {
         conversation_key(&self.address)
+    }
+
+    /// A one-line summary, for previews and notifications.
+    pub fn summary(&self) -> String {
+        let text = self.text.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !text.is_empty() || self.attachments.is_empty() {
+            return text;
+        }
+        let kind = self.attachments[0].kind;
+        let count = self.attachments.iter().filter(|a| a.kind == kind).count();
+        kind.label(count)
+    }
+}
+
+/// An attachment of a message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Attachment {
+    /// What it is.
+    pub kind: AttachmentKind,
+    /// The MIME type, if known.
+    pub mime: Option<String>,
+    /// The downloaded content, if the phone sent it.
+    pub file: Option<PathBuf>,
+}
+
+/// What an attachment is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AttachmentKind {
+    /// A photo or image.
+    Photo,
+    /// A video.
+    Video,
+    /// Audio.
+    Audio,
+    /// Anything else.
+    File,
+}
+
+impl AttachmentKind {
+    /// `Photo`, `2 Photos` and so on.
+    pub fn label(self, count: usize) -> String {
+        crate::text::Kind::from(self).label(count)
+    }
+}
+
+impl From<crate::text::Kind> for AttachmentKind {
+    fn from(kind: crate::text::Kind) -> AttachmentKind {
+        match kind {
+            crate::text::Kind::Photo => AttachmentKind::Photo,
+            crate::text::Kind::Video => AttachmentKind::Video,
+            crate::text::Kind::Audio => AttachmentKind::Audio,
+            crate::text::Kind::File => AttachmentKind::File,
+        }
+    }
+}
+
+impl From<AttachmentKind> for crate::text::Kind {
+    fn from(kind: AttachmentKind) -> crate::text::Kind {
+        match kind {
+            AttachmentKind::Photo => crate::text::Kind::Photo,
+            AttachmentKind::Video => crate::text::Kind::Video,
+            AttachmentKind::Audio => crate::text::Kind::Audio,
+            AttachmentKind::File => crate::text::Kind::File,
+        }
     }
 }
 
@@ -93,6 +160,8 @@ pub struct Synced {
     pub time: i64,
     /// Whether the message has been read.
     pub read: bool,
+    /// Its attachments.
+    pub attachments: Vec<Attachment>,
 }
 
 /// A conversation, as listed in the sidebar.
@@ -110,6 +179,8 @@ pub struct Conversation {
     pub time: i64,
     /// The number of unread received messages.
     pub unread: usize,
+    /// The contact's photo.
+    pub photo: Option<PathBuf>,
 }
 
 /// How far apart a locally sent message and its copy in the phone's Sent folder can
@@ -203,6 +274,28 @@ impl Store {
         self.next_id
     }
 
+    /// Replaces the contacts; with `keep_photos`, contacts without a photo keep the
+    /// one they had, for downloads made without photos.
+    pub fn replace_contacts(&mut self, mut contacts: Vec<Contact>, keep_photos: bool) {
+        if keep_photos {
+            for contact in contacts
+                .iter_mut()
+                .filter(|contact| contact.photo.is_none())
+            {
+                let first = contact.addresses().next().map(conversation_key);
+                contact.photo = self
+                    .contacts
+                    .iter()
+                    .find(|old| {
+                        old.name == contact.name
+                            && old.addresses().next().map(conversation_key) == first
+                    })
+                    .and_then(|old| old.photo.clone());
+            }
+        }
+        self.set_contacts(contacts);
+    }
+
     /// Replaces the contacts.
     pub fn set_contacts(&mut self, mut contacts: Vec<Contact>) {
         contacts.sort_by_key(|contact| contact.name.to_lowercase());
@@ -279,6 +372,7 @@ impl Store {
             time,
             read: true,
             status: Status::Sending,
+            attachments: Vec::new(),
         });
         self.changed();
         id
@@ -341,6 +435,7 @@ impl Store {
             !m.listed
                 && m.direction == synced.direction
                 && m.text.trim() == synced.text.trim()
+                && m.attachments.len() == synced.attachments.len()
                 && (m.time - synced.time).abs() <= window
                 && m.conversation() == key
         };
@@ -365,6 +460,10 @@ impl Store {
             if synced.name.is_some() {
                 message.name = synced.name;
             }
+            // Keep downloaded attachments; take them if this download has them.
+            if synced.attachments.iter().any(|a| a.file.is_some()) {
+                message.attachments = synced.attachments;
+            }
             if matches!(message.status, Status::Sending | Status::Failed(_)) {
                 message.status = Status::Sent;
             }
@@ -387,6 +486,7 @@ impl Store {
                 Direction::Incoming => Status::Received,
                 Direction::Outgoing => Status::Sent,
             },
+            attachments: synced.attachments,
         });
         self.changed();
         Some(id)
@@ -420,7 +520,10 @@ impl Store {
                 Conversation {
                     title: self.display_name(&last.address, name),
                     address: last.address.clone(),
-                    preview: last.text.split_whitespace().collect::<Vec<_>>().join(" "),
+                    preview: last.summary(),
+                    photo: self
+                        .contact(&last.address)
+                        .and_then(|contact| contact.photo.clone()),
                     time: last.time,
                     unread,
                     key,
@@ -497,6 +600,7 @@ mod tests {
             text: text.to_string(),
             time,
             read: false,
+            attachments: Vec::new(),
         }
     }
 
@@ -582,7 +686,7 @@ mod tests {
                 number: "(555) 123-0002".to_string(),
                 label: "mobile".to_string(),
             }],
-            emails: Vec::new(),
+            ..Contact::default()
         }]);
         assert_eq!("Ann (phone)", store.conversations()[0].title);
 
@@ -592,9 +696,27 @@ mod tests {
                 number: "555-123-0001".to_string(),
                 label: "mobile".to_string(),
             }],
-            emails: Vec::new(),
+            ..Contact::default()
         }]);
         assert_eq!("Ann", store.conversations()[0].title);
+    }
+
+    #[test]
+    fn photo_only_messages_are_kept_apart_and_summarized() {
+        let mut store = Store::in_memory();
+        let photo = |handle, time| Synced {
+            attachments: vec![Attachment {
+                kind: AttachmentKind::Photo,
+                mime: None,
+                file: None,
+            }],
+            ..synced(handle, Direction::Incoming, "+15555550001", "", time)
+        };
+        store.merge(photo(1, 100));
+        store.merge(synced(2, Direction::Incoming, "+15555550001", "", 110));
+        store.merge(photo(3, 120));
+        assert_eq!(3, store.messages.len());
+        assert_eq!("Photo", store.conversations()[0].preview);
     }
 
     #[test]

@@ -50,7 +50,22 @@ fn gradient_circle(center: Pos2, radius: f32, top: Color32, bottom: Color32) -> 
 }
 
 /// Paints a contact avatar: initials, or a silhouette for unknown numbers.
-pub fn paint_avatar(ui: &Ui, center: Pos2, radius: f32, name: &str, palette: &Palette) {
+pub fn paint_avatar(
+    ui: &Ui,
+    center: Pos2,
+    radius: f32,
+    name: &str,
+    photo: Option<&egui::TextureHandle>,
+    palette: &Palette,
+) {
+    if let Some(photo) = photo {
+        let size = vec2(2.0 * radius, 2.0 * radius);
+        egui::Image::new((photo.id(), size))
+            .fit_to_exact_size(size)
+            .corner_radius(radius.round() as u8)
+            .paint_at(ui, Rect::from_center_size(center, size));
+        return;
+    }
     let painter = ui.painter();
     painter.add(gradient_circle(
         center,

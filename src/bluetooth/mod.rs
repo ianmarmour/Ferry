@@ -23,6 +23,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc;
 
 pub mod demo;
+pub mod sdp;
 
 #[cfg(any(target_os = "macos", windows))]
 mod bridge;
@@ -103,9 +104,6 @@ pub fn uuid128(uuid16: u16) -> String {
     format!("0000{:04x}-0000-1000-8000-00805f9b34fb", uuid16)
 }
 
-/// The UUID of the PBAP client role (PCE).
-pub const PHONE_BOOK_CLIENT_UUID16: u16 = 0x112E;
-
 /// The `MapSupportedFeatures` Ferry advertises in its notification server record:
 /// notification registration, notifications, browsing, uploading and delete
 /// (`0x1F`, the MAP 1.0 feature set) plus the extended event reports of MAP 1.2,
@@ -172,76 +170,4 @@ pub fn native() -> anyhow::Result<Arc<dyn Backend>> {
 
     #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
     anyhow::bail!("Bluetooth is not supported on this platform")
-}
-
-/// Encodes SDP data elements (Bluetooth Core, Vol 3, Part B, section 3), for the
-/// platforms that take raw service records.
-#[cfg_attr(not(any(windows, test)), allow(dead_code))]
-pub(crate) mod sdp {
-    /// A 16-bit UUID.
-    pub fn uuid16(uuid: u16) -> Vec<u8> {
-        let mut out = vec![0x19];
-        out.extend_from_slice(&uuid.to_be_bytes());
-        out
-    }
-
-    /// A 16-bit unsigned integer.
-    pub fn uint16(value: u16) -> Vec<u8> {
-        let mut out = vec![0x09];
-        out.extend_from_slice(&value.to_be_bytes());
-        out
-    }
-
-    /// A 32-bit unsigned integer.
-    pub fn uint32(value: u32) -> Vec<u8> {
-        let mut out = vec![0x0A];
-        out.extend_from_slice(&value.to_be_bytes());
-        out
-    }
-
-    /// A text string.
-    pub fn text(value: &str) -> Vec<u8> {
-        let mut out = vec![0x25, value.len() as u8];
-        out.extend_from_slice(value.as_bytes());
-        out
-    }
-
-    /// A data element sequence.
-    pub fn sequence(elements: &[Vec<u8>]) -> Vec<u8> {
-        let body: Vec<u8> = elements.concat();
-        let mut out = vec![0x35, body.len() as u8];
-        out.extend(body);
-        out
-    }
-
-    /// Reads an unsigned integer element, as found in an attribute value.
-    pub fn read_uint(element: &[u8]) -> Option<u64> {
-        let (&descriptor, value) = element.split_first()?;
-        if descriptor >> 3 != 1 {
-            return None;
-        }
-        let size = 1usize << (descriptor & 0x07);
-        let bytes = value.get(..size)?;
-        Some(
-            bytes
-                .iter()
-                .fold(0u64, |acc, &byte| acc << 8 | u64::from(byte)),
-        )
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn encodes_and_reads_elements() {
-            assert_eq!(
-                vec![0x35, 0x06, 0x19, 0x11, 0x34, 0x09, 0x01, 0x04],
-                sequence(&[uuid16(0x1134), uint16(0x0104)])
-            );
-            assert_eq!(Some(0x1F), read_uint(&uint32(0x1F)));
-            assert_eq!(Some(3), read_uint(&[0x08, 3]));
-            assert_eq!(None, read_uint(&text("x")));
-        }
-    }
 }

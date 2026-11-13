@@ -1,0 +1,5 @@
+#!/bin/sh
+# Starts Ferry from its AppImage. The AppImage's runtime sets APPIMAGE to the
+# AppImage's own path, which Ferry's desktop entry launches.
+here=${APPDIR:-$(dirname "$(readlink -f "$0")")}
+exec "$here/usr/bin/ferry" "$@"

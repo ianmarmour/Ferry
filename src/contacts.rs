@@ -5,10 +5,12 @@
 //! messages carry, which come in many spellings (`+1 555-123-4567`, `5551234567`,
 //! `(555) 123-4567`), to contacts and conversations.
 //!
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 /// A person or business that can be texted.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Contact {
     /// The name to show.
     pub name: String,
@@ -16,6 +18,12 @@ pub struct Contact {
     pub phones: Vec<Phone>,
     /// E-mail addresses, which iMessage can text too.
     pub emails: Vec<String>,
+    /// The contact's photo, saved next to the message cache.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub photo: Option<PathBuf>,
+    /// The photo as found in the vCard, until it is saved.
+    #[serde(skip)]
+    pub photo_data: Option<Vec<u8>>,
 }
 
 impl Contact {
@@ -161,6 +169,15 @@ impl Property {
     fn is_quoted_printable(&self) -> bool {
         self.params.iter().any(|(key, value)| {
             (key == "ENCODING" || key == "TYPE") && value.eq_ignore_ascii_case("QUOTED-PRINTABLE")
+        })
+    }
+
+    /// Whether the value is inline base64 data (`ENCODING=b` in vCard 3.0,
+    /// `ENCODING=BASE64` in 2.1), rather than a URI.
+    fn is_inline_binary(&self) -> bool {
+        self.params.iter().any(|(key, value)| {
+            key == "ENCODING"
+                && (value.eq_ignore_ascii_case("b") || value.eq_ignore_ascii_case("base64"))
         })
     }
 
@@ -314,6 +331,7 @@ pub fn parse_vcards(data: &[u8]) -> Vec<Contact> {
     let mut organization = String::new();
     let mut phones: Vec<Phone> = Vec::new();
     let mut emails: Vec<String> = Vec::new();
+    let mut photo: Option<Vec<u8>> = None;
 
     for line in unfold(&text) {
         let Some(property) = Property::parse(&line) else {
@@ -328,6 +346,7 @@ pub fn parse_vcards(data: &[u8]) -> Vec<Contact> {
                 organization.clear();
                 phones.clear();
                 emails.clear();
+                photo = None;
             }
             "END" if inside && property.value.trim().eq_ignore_ascii_case("VCARD") => {
                 inside = false;
@@ -362,6 +381,8 @@ pub fn parse_vcards(data: &[u8]) -> Vec<Contact> {
                     name,
                     phones: std::mem::take(&mut phones),
                     emails: std::mem::take(&mut emails),
+                    photo: None,
+                    photo_data: photo.take(),
                 });
             }
             _ if !inside => {}
@@ -384,6 +405,12 @@ pub fn parse_vcards(data: &[u8]) -> Vec<Contact> {
                 let email = property.text();
                 if !email.is_empty() && !emails.contains(&email) {
                     emails.push(email);
+                }
+            }
+            "PHOTO" if property.is_inline_binary() => {
+                let data = crate::text::decode_base64(&property.value);
+                if !data.is_empty() {
+                    photo = Some(data);
                 }
             }
             _ => {}
@@ -465,6 +492,22 @@ mod tests {
     }
 
     #[test]
+    fn reads_photos() {
+        let data = b"BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Jane\r\nTEL:5551234567\r\n\
+            PHOTO;ENCODING=b;TYPE=JPEG:aGVs\r\n bG8=\r\nEND:VCARD\r\n\
+            BEGIN:VCARD\r\nVERSION:2.1\r\nN:Smith;Bob\r\nTEL:5557654321\r\n\
+            PHOTO;ENCODING=BASE64;TYPE=JPEG:\r\n  d29y\r\n  bGQ=\r\n\r\nEND:VCARD\r\n\
+            BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Web\r\nTEL:5550000000\r\n\
+            PHOTO;VALUE=uri:http://example.com/a.jpg\r\nEND:VCARD\r\n";
+        let contacts = parse_vcards(data);
+
+        assert_eq!(Some(b"world".to_vec()), contacts[0].photo_data);
+        assert_eq!("Bob Smith", contacts[0].name);
+        assert_eq!(Some(b"hello".to_vec()), contacts[1].photo_data);
+        assert_eq!(None, contacts[2].photo_data);
+    }
+
+    #[test]
     fn matches_names_and_numbers() {
         let contact = Contact {
             name: "Jane Smith".to_string(),
@@ -473,6 +516,7 @@ mod tests {
                 label: "mobile".to_string(),
             }],
             emails: vec!["jane@example.com".to_string()],
+            ..Contact::default()
         };
 
         assert!(contact.matches("jan"));

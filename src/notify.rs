@@ -16,15 +16,21 @@ impl Notifier {
         Notifier { runtime }
     }
 
-    /// Notifies of a message from `sender`.
-    pub fn show(&self, sender: &str, text: &str) {
+    /// Notifies of a message from `sender`, with the sender's photo if there is one.
+    pub fn show(&self, sender: &str, text: &str, photo: Option<&std::path::Path>) {
         let mut notification = notify_rust::Notification::new();
         notification.appname("Ferry").summary(sender).body(text);
+        if let Some(photo) = photo {
+            notification.image_path(&photo.to_string_lossy());
+        }
 
         #[cfg(all(unix, not(target_os = "macos")))]
         {
             notification
-                .icon("mail-message-new")
+                .icon(crate::ui::APP_ID)
+                .hint(notify_rust::Hint::DesktopEntry(
+                    crate::ui::APP_ID.to_string(),
+                ))
                 .hint(notify_rust::Hint::Category("im.received".to_string()));
             self.runtime.spawn(async move {
                 if let Err(error) = notification.show_async().await {

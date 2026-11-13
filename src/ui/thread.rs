@@ -61,6 +61,7 @@ impl FerryApp {
 
         let mut retry = None;
         let scroll = std::mem::take(&mut self.scroll_to_bottom);
+        let photos = &mut self.photos;
         egui::CentralPanel::default()
             .frame(Frame::new().fill(palette.window))
             .show(ui, |ui| {
@@ -98,13 +99,24 @@ impl FerryApp {
                         let tail = next.is_none_or(|n| {
                             n.direction != message.direction || n.time - message.time > GAP
                         });
-                        let response = bubble(ui, message, tail, palette);
-                        response.context_menu(|ui| {
-                            if ui.button("Copy").clicked() {
-                                ui.ctx().copy_text(message.text.clone());
-                                ui.close();
+                        for (n, attachment) in message.attachments.iter().enumerate() {
+                            if n > 0 {
+                                ui.add_space(2.0);
                             }
-                        });
+                            super::photos::attachment(ui, photos, message, attachment, palette);
+                        }
+                        if !message.text.is_empty() || message.attachments.is_empty() {
+                            if !message.attachments.is_empty() {
+                                ui.add_space(2.0);
+                            }
+                            let response = bubble(ui, message, tail, palette);
+                            response.context_menu(|ui| {
+                                if ui.button("Copy").clicked() {
+                                    ui.ctx().copy_text(message.text.clone());
+                                    ui.close();
+                                }
+                            });
+                        }
 
                         if let Some(clicked) =
                             caption(ui, message, Some(i) == last_outgoing, palette)
@@ -219,7 +231,7 @@ impl FerryApp {
     /// Lists the contacts matching the To field; returns the one picked.
     fn contact_picker(&mut self, ui: &mut Ui, palette: &Palette) -> Option<(String, String)> {
         let query = self.compose.query.clone();
-        let entries: Vec<(String, String, String)> = {
+        let entries: Vec<(String, String, String, Option<std::path::PathBuf>)> = {
             let store = self.store();
             store
                 .contacts
@@ -236,7 +248,9 @@ impl FerryApp {
                         .map(|email| ("email".to_string(), email.clone()));
                     phones
                         .chain(emails)
-                        .map(|(label, address)| (contact.name.clone(), label, address))
+                        .map(|(label, address)| {
+                            (contact.name.clone(), label, address, contact.photo.clone())
+                        })
                         .collect::<Vec<_>>()
                 })
                 .take(200)
@@ -261,12 +275,22 @@ impl FerryApp {
                 }
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    for (name, label, address) in &entries {
+                    for (name, label, address, photo) in &entries {
+                        let avatar = photo
+                            .as_deref()
+                            .and_then(|path| self.photos.avatar(ui.ctx(), path));
                         let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 46.0), Sense::click());
                         if response.hovered() {
                             ui.painter().rect_filled(rect, 8.0, palette.field.gamma_multiply(0.6));
                         }
-                        super::widgets::paint_avatar(ui, pos2(rect.left() + 24.0, rect.center().y), 16.0, name, palette);
+                        super::widgets::paint_avatar(
+                            ui,
+                            pos2(rect.left() + 24.0, rect.center().y),
+                            16.0,
+                            name,
+                            avatar.as_ref(),
+                            palette,
+                        );
                         let painter = ui.painter();
                         painter.text(
                             pos2(rect.left() + 50.0, rect.top() + 7.0),
